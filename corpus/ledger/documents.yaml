@@ -1,0 +1,1411 @@
+# Document manifest for the "Lumen Labs" corpus (throughline PLAN.md §6).
+#
+# Every docId here must exactly match a docId referenced in facts.yaml's `expressedIn`
+# (for fact-bearing documents) or corpus/questions.yaml. `factIds: []` marks a pure-noise
+# document — realistic filler that carries no ground-truth fact, included deliberately so
+# retrieval faces a realistic signal-to-noise ratio rather than uniformly dense documents
+# (PLAN.md §6, "Generator"). `brief` is the instruction scripts/corpus-generate.ts hands to
+# the LLM for that one document — not the document text itself.
+#
+# Internal email convention: firstname@lumenlabs.io. External contacts are one-off,
+# invented, and intentionally NOT in entities.yaml (facts never depend on their exact
+# identity — e.g. facts say "an external researcher", never a specific outside name).
+
+mail:
+  # ---- Fact-bearing threads ---------------------------------------------------------
+  - docId: mail.thread-helios-date-change.msg-1
+    threadId: thread-helios-date-change
+    subject: Helios launch date — need options
+    from: priya@lumenlabs.io
+    to: [ravi@lumenlabs.io, amara@lumenlabs.io]
+    date: 2026-02-19
+    factIds: []
+    brief: >
+      Priya Raman asks Ravi and Amara for realistic revised launch options for Helios
+      after hearing the load test failed at 4x volume; she needs a date to give the board.
+
+  - docId: mail.thread-helios-date-change.msg-2
+    threadId: thread-helios-date-change
+    subject: "Re: Helios launch date — need options"
+    from: amara@lumenlabs.io
+    to: [priya@lumenlabs.io, ravi@lumenlabs.io]
+    date: 2026-02-19
+    factIds: []
+    brief: >
+      Amara Chen replies proposing 2026-04-21 as the revised date, citing the billing
+      migration load-test failure as the reason more time is needed; Ravi is cc'd.
+
+  - docId: mail.thread-helios-date-change.msg-3
+    threadId: thread-helios-date-change
+    subject: "Re: Helios launch date — need options"
+    from: priya@lumenlabs.io
+    to: [ravi@lumenlabs.io, amara@lumenlabs.io]
+    date: 2026-02-20
+    factIds: [fact.helios-delay-signoff]
+    brief: >
+      Priya Raman formally approves the revised Helios launch date of 2026-04-21,
+      dated 2026-02-20, and asks that the board and customer-facing teams be notified.
+
+  - docId: mail.thread-helios-launch-day.msg-1
+    threadId: thread-helios-launch-day
+    subject: Helios is live (one day late — TLS cert issue)
+    from: amara@lumenlabs.io
+    to: [ravi@lumenlabs.io, priya@lumenlabs.io, daniel@lumenlabs.io]
+    date: 2026-04-22
+    factIds: [fact.helios-launch-final]
+    brief: >
+      Amara Chen announces Helios shipped on 2026-04-22, one day after the approved
+      2026-04-21 date, explaining the delay was a last-minute TLS certificate renewal
+      issue caught in staging, not a repeat of the billing migration problem.
+
+  - docId: mail.thread-helios-launch-day.msg-2
+    threadId: thread-helios-launch-day
+    subject: "Re: Helios is live (one day late — TLS cert issue)"
+    from: daniel@lumenlabs.io
+    to: [amara@lumenlabs.io, ravi@lumenlabs.io, priya@lumenlabs.io]
+    date: 2026-04-22
+    factIds: []
+    brief: >
+      Daniel Oyelaran congratulates the team on shipping Helios and asks Priya to
+      prep customer-facing messaging.
+
+  - docId: mail.thread-pricing-change-rationale.msg-1
+    threadId: thread-pricing-change-rationale
+    subject: Why we need to move off seat-based pricing
+    from: claire@lumenlabs.io
+    to: [daniel@lumenlabs.io, priya@lumenlabs.io]
+    date: 2026-01-12
+    factIds: [fact.pricing-v2-rationale]
+    brief: >
+      Claire Jensen writes to leadership explaining that enterprise prospects,
+      including Northwind Retail, have refused seat-based contracts during
+      procurement, and argues for moving to usage-based pricing.
+
+  - docId: mail.thread-northwind-missing-replays.msg-1
+    threadId: thread-northwind-missing-replays
+    subject: Missing session replays — mobile checkout
+    from: jordan.reyes@northwindretail.com
+    to: [support@lumenlabs.io]
+    date: 2026-02-03
+    factIds: [fact.northwind-bug]
+    brief: >
+      Jordan Reyes at Northwind Retail reports that session replays have been
+      missing for their mobile checkout flow since 2026-02-03, and asks for an
+      urgent fix given how much traffic that flow gets.
+
+  - docId: mail.thread-northwind-missing-replays.msg-2
+    threadId: thread-northwind-missing-replays
+    subject: "Re: Missing session replays — mobile checkout"
+    from: sofia@lumenlabs.io
+    to: [grace@lumenlabs.io]
+    date: 2026-02-03
+    factIds: []
+    brief: >
+      Sofia Marek forwards the Northwind Retail escalation internally to Grace Oduya
+      and asks her to investigate as a priority given Northwind's account size.
+
+  - docId: mail.thread-northwind-renewal.msg-1
+    threadId: thread-northwind-renewal
+    subject: Renewing our contract
+    from: jordan.reyes@northwindretail.com
+    to: [claire@lumenlabs.io, devon@lumenlabs.io]
+    date: 2026-03-01
+    factIds: [fact.northwind-outcome]
+    brief: >
+      Jordan Reyes at Northwind Retail confirms they are renewing their annual
+      contract, now under the usage-based pricing tier, and thanks the team for
+      resolving the missing-replay issue quickly.
+
+  - docId: mail.thread-northwind-renewal.msg-2
+    threadId: thread-northwind-renewal
+    subject: "Re: Renewing our contract"
+    from: devon@lumenlabs.io
+    to: [claire@lumenlabs.io, sofia@lumenlabs.io]
+    date: 2026-03-01
+    factIds: []
+    brief: >
+      Devon Pierce celebrates the Northwind Retail renewal internally and thanks
+      Grace for the fast turnaround on the fix.
+
+  - docId: mail.thread-aurora-cutover-notice.msg-1
+    threadId: thread-aurora-cutover-notice
+    subject: Aurora migration cutover — 2026-05-15
+    from: ines@lumenlabs.io
+    to: [ravi@lumenlabs.io, tariq@lumenlabs.io, priya@lumenlabs.io]
+    date: 2026-04-28
+    factIds: [fact.infra-migration-date]
+    brief: >
+      Ines Dubois notifies stakeholders that the Aurora database cutover is
+      scheduled for 2026-05-15, with a 48-hour rollback window if anything goes wrong.
+
+  - docId: mail.thread-tariq-hire-approval.msg-1
+    threadId: thread-tariq-hire-approval
+    subject: Approved — Senior SRE offer
+    from: ravi@lumenlabs.io
+    to: [ines@lumenlabs.io]
+    date: 2025-12-10
+    factIds: [fact.tariq-hire-approval]
+    brief: >
+      Ravi Anand approves extending a Senior SRE offer to Tariq Hassan, dated
+      2025-12-10, and asks Ines to coordinate the start date.
+
+  - docId: mail.thread-security-disclosure-xss.msg-1
+    threadId: thread-security-disclosure-xss
+    subject: Security disclosure — stored XSS in custom annotations
+    from: anon.researcher1@protonmail.example
+    to: [security@lumenlabs.io]
+    date: 2026-02-25
+    factIds: [fact.security-finding]
+    brief: >
+      An external security researcher reports a stored XSS vulnerability in the
+      Pulse dashboard's custom-annotation feature, dated 2026-02-25, with a
+      proof-of-concept payload description.
+
+  - docId: mail.thread-security-disclosure-openredirect.msg-1
+    threadId: thread-security-disclosure-openredirect
+    subject: Open redirect in OAuth login flow
+    from: anon.researcher2@protonmail.example
+    to: [security@lumenlabs.io]
+    date: 2025-11-12
+    factIds: [fact.security-finding-2]
+    brief: >
+      A different external researcher reports an open-redirect vulnerability in the
+      OAuth login flow, dated 2025-11-12 — an earlier, separate finding from the
+      2026-02-25 XSS report.
+
+  - docId: mail.thread-api-v2-deprecation-notice.msg-1
+    threadId: thread-api-v2-deprecation-notice
+    subject: Pulse API v2 deprecation timeline
+    from: noah@lumenlabs.io
+    to: [api-customers@lumenlabs.io]
+    date: 2026-03-05
+    factIds: [fact.api-v2-deprecation-date]
+    brief: >
+      Noah Fischer announces to API customers that Pulse API v2 will be deprecated
+      on 2026-06-01, and encourages migration to v3.
+
+  - docId: mail.thread-offsite-logistics.msg-1
+    threadId: thread-offsite-logistics
+    subject: I'm handling offsite logistics — questions welcome
+    from: yuki@lumenlabs.io
+    to: [team@lumenlabs.io]
+    date: 2026-05-02
+    factIds: [fact.offsite-organizer]
+    brief: >
+      Yuki Tanaka lets the team know she's organizing logistics for the Lisbon
+      offsite and to send her any dietary/travel questions.
+
+  - docId: mail.thread-board-update-exec-summary.msg-1
+    threadId: thread-board-update-exec-summary
+    subject: Board meeting recap — 2026-02-01
+    from: daniel@lumenlabs.io
+    to: [leadership@lumenlabs.io]
+    date: 2026-02-02
+    factIds: [fact.board-update-headcount]
+    brief: >
+      Daniel Oyelaran recaps the 2026-02-01 board meeting for the leadership team,
+      noting the board approved growing headcount to 35 by the end of 2026.
+
+  # ---- Noise threads (no assigned facts) --------------------------------------------
+  - docId: mail.thread-q1-all-hands-recap.msg-1
+    threadId: thread-q1-all-hands-recap
+    subject: Q1 all-hands recap
+    from: daniel@lumenlabs.io
+    to: [team@lumenlabs.io]
+    date: 2026-01-09
+    factIds: []
+    brief: Daniel recaps the Q1 all-hands meeting with general highlights, nothing storyline-specific.
+  - docId: mail.thread-q1-all-hands-recap.msg-2
+    threadId: thread-q1-all-hands-recap
+    subject: "Re: Q1 all-hands recap"
+    from: omar@lumenlabs.io
+    to: [daniel@lumenlabs.io]
+    date: 2026-01-09
+    factIds: []
+    brief: Omar follows up asking for the all-hands slides to reuse in a marketing deck.
+
+  - docId: mail.thread-expense-report-approval.msg-1
+    threadId: thread-expense-report-approval
+    subject: Expense report — approval needed
+    from: ben@lumenlabs.io
+    to: [ops@lumenlabs.io]
+    date: 2026-01-14
+    factIds: []
+    brief: Ben submits a routine conference-travel expense report for approval.
+  - docId: mail.thread-expense-report-approval.msg-2
+    threadId: thread-expense-report-approval
+    subject: "Re: Expense report — approval needed"
+    from: ops@lumenlabs.io
+    to: [ben@lumenlabs.io]
+    date: 2026-01-15
+    factIds: []
+    brief: Ops confirms the expense report is approved and reimbursement is on the way.
+
+  - docId: mail.thread-conference-sponsorship.msg-1
+    threadId: thread-conference-sponsorship
+    subject: DevConf sponsorship — decision needed by Friday
+    from: omar@lumenlabs.io
+    to: [daniel@lumenlabs.io, claire@lumenlabs.io]
+    date: 2026-01-20
+    factIds: []
+    brief: Omar proposes sponsoring a developer conference and asks for budget sign-off.
+  - docId: mail.thread-conference-sponsorship.msg-2
+    threadId: thread-conference-sponsorship
+    subject: "Re: DevConf sponsorship — decision needed by Friday"
+    from: daniel@lumenlabs.io
+    to: [omar@lumenlabs.io, claire@lumenlabs.io]
+    date: 2026-01-21
+    factIds: []
+    brief: Daniel approves a smaller sponsorship tier than originally requested.
+  - docId: mail.thread-conference-sponsorship.msg-3
+    threadId: thread-conference-sponsorship
+    subject: "Re: DevConf sponsorship — decision needed by Friday"
+    from: omar@lumenlabs.io
+    to: [daniel@lumenlabs.io]
+    date: 2026-01-21
+    factIds: []
+    brief: Omar thanks Daniel and says he'll finalize the booth design this week.
+
+  - docId: mail.thread-customer-testimonial-request.msg-1
+    threadId: thread-customer-testimonial-request
+    subject: Would Fenwick & Cole give us a quote?
+    from: devon@lumenlabs.io
+    to: [morgan.lee@fenwickcole.com]
+    date: 2026-02-08
+    factIds: []
+    brief: Devon asks a Fenwick & Cole contact for a testimonial quote for the Pulse website.
+  - docId: mail.thread-customer-testimonial-request.msg-2
+    threadId: thread-customer-testimonial-request
+    subject: "Re: Would Fenwick & Cole give us a quote?"
+    from: morgan.lee@fenwickcole.com
+    to: [devon@lumenlabs.io]
+    date: 2026-02-10
+    factIds: []
+    brief: Morgan Lee agrees and sends over a short quote praising Pulse's error tracking.
+
+  - docId: mail.thread-standup-summary-eng.msg-1
+    threadId: thread-standup-summary-eng
+    subject: Frontend weekly summary
+    from: lena@lumenlabs.io
+    to: [ravi@lumenlabs.io]
+    date: 2026-02-06
+    factIds: []
+    brief: Lena sends a routine weekly frontend team summary — nothing storyline-specific.
+  - docId: mail.thread-standup-summary-eng.msg-2
+    threadId: thread-standup-summary-eng
+    subject: "Re: Frontend weekly summary"
+    from: ravi@lumenlabs.io
+    to: [lena@lumenlabs.io]
+    date: 2026-02-06
+    factIds: []
+    brief: Ravi thanks Lena and asks a small clarifying question about a UI bug.
+
+  - docId: mail.thread-vendor-invoice-datadog.msg-1
+    threadId: thread-vendor-invoice-datadog
+    subject: Datadog invoice — approval
+    from: ines@lumenlabs.io
+    to: [ops@lumenlabs.io]
+    date: 2026-02-12
+    factIds: []
+    brief: Ines forwards a routine Datadog monitoring invoice for approval.
+  - docId: mail.thread-vendor-invoice-datadog.msg-2
+    threadId: thread-vendor-invoice-datadog
+    subject: "Re: Datadog invoice — approval"
+    from: ops@lumenlabs.io
+    to: [ines@lumenlabs.io]
+    date: 2026-02-13
+    factIds: []
+    brief: Ops confirms the invoice is paid.
+
+  - docId: mail.thread-hiring-pipeline-update.msg-1
+    threadId: thread-hiring-pipeline-update
+    subject: Support hiring pipeline
+    from: sofia@lumenlabs.io
+    to: [ravi@lumenlabs.io]
+    date: 2026-02-16
+    factIds: []
+    brief: Sofia updates Ravi on the pipeline for a new support hire, unrelated to Tariq's SRE hire.
+  - docId: mail.thread-hiring-pipeline-update.msg-2
+    threadId: thread-hiring-pipeline-update
+    subject: "Re: Support hiring pipeline"
+    from: ravi@lumenlabs.io
+    to: [sofia@lumenlabs.io]
+    date: 2026-02-16
+    factIds: []
+    brief: Ravi asks Sofia to move faster given rising ticket volume.
+  - docId: mail.thread-hiring-pipeline-update.msg-3
+    threadId: thread-hiring-pipeline-update
+    subject: "Re: Support hiring pipeline"
+    from: sofia@lumenlabs.io
+    to: [ravi@lumenlabs.io]
+    date: 2026-02-17
+    factIds: []
+    brief: Sofia confirms two candidates are in final interviews.
+
+  - docId: mail.thread-brightpath-demo-followup.msg-1
+    threadId: thread-brightpath-demo-followup
+    subject: Great demo — next steps?
+    from: dana.osei@brightpathlogistics.com
+    to: [claire@lumenlabs.io]
+    date: 2026-02-19
+    factIds: []
+    brief: A BrightPath Logistics prospect follows up positively after a product demo.
+  - docId: mail.thread-brightpath-demo-followup.msg-2
+    threadId: thread-brightpath-demo-followup
+    subject: "Re: Great demo — next steps?"
+    from: claire@lumenlabs.io
+    to: [dana.osei@brightpathlogistics.com]
+    date: 2026-02-19
+    factIds: []
+    brief: Claire proposes a follow-up call to discuss pricing tiers.
+  - docId: mail.thread-brightpath-demo-followup.msg-3
+    threadId: thread-brightpath-demo-followup
+    subject: "Re: Great demo — next steps?"
+    from: dana.osei@brightpathlogistics.com
+    to: [claire@lumenlabs.io]
+    date: 2026-02-21
+    factIds: []
+    brief: Dana proposes a time next week for the pricing call.
+
+  - docId: mail.thread-design-review-invite.msg-1
+    threadId: thread-design-review-invite
+    subject: Design review — dashboard redesign
+    from: yuki@lumenlabs.io
+    to: [lena@lumenlabs.io, noah@lumenlabs.io]
+    date: 2026-02-23
+    factIds: []
+    brief: Yuki schedules a design review session for the dashboard redesign work.
+  - docId: mail.thread-design-review-invite.msg-2
+    threadId: thread-design-review-invite
+    subject: "Re: Design review — dashboard redesign"
+    from: noah@lumenlabs.io
+    to: [yuki@lumenlabs.io]
+    date: 2026-02-23
+    factIds: []
+    brief: Noah confirms attendance and asks for the Figma link in advance.
+
+  - docId: mail.thread-oncall-rotation-update.msg-1
+    threadId: thread-oncall-rotation-update
+    subject: Updated on-call rotation — March
+    from: tariq@lumenlabs.io
+    to: [eng-all@lumenlabs.io]
+    date: 2026-02-28
+    factIds: []
+    brief: Tariq shares the updated on-call rotation schedule for March.
+  - docId: mail.thread-oncall-rotation-update.msg-2
+    threadId: thread-oncall-rotation-update
+    subject: "Re: Updated on-call rotation — March"
+    from: ben@lumenlabs.io
+    to: [tariq@lumenlabs.io]
+    date: 2026-02-28
+    factIds: []
+    brief: Ben asks to swap one week due to a planned vacation.
+
+  - docId: mail.thread-newsletter-draft-review.msg-1
+    threadId: thread-newsletter-draft-review
+    subject: March newsletter draft — feedback wanted
+    from: omar@lumenlabs.io
+    to: [daniel@lumenlabs.io, priya@lumenlabs.io]
+    date: 2026-03-02
+    factIds: []
+    brief: Omar circulates the monthly customer newsletter draft for feedback.
+  - docId: mail.thread-newsletter-draft-review.msg-2
+    threadId: thread-newsletter-draft-review
+    subject: "Re: March newsletter draft — feedback wanted"
+    from: priya@lumenlabs.io
+    to: [omar@lumenlabs.io]
+    date: 2026-03-02
+    factIds: []
+    brief: Priya suggests leading with the API v3 launch instead of a minor UI update.
+  - docId: mail.thread-newsletter-draft-review.msg-3
+    threadId: thread-newsletter-draft-review
+    subject: "Re: March newsletter draft — feedback wanted"
+    from: omar@lumenlabs.io
+    to: [priya@lumenlabs.io]
+    date: 2026-03-03
+    factIds: []
+    brief: Omar agrees and says he'll revise the draft.
+
+  - docId: mail.thread-customer-nps-survey-results.msg-1
+    threadId: thread-customer-nps-survey-results
+    subject: Q1 NPS survey results
+    from: sofia@lumenlabs.io
+    to: [leadership@lumenlabs.io]
+    date: 2026-03-08
+    factIds: []
+    brief: Sofia shares Q1 NPS survey results with leadership — generally positive, nothing storyline-specific.
+  - docId: mail.thread-customer-nps-survey-results.msg-2
+    threadId: thread-customer-nps-survey-results
+    subject: "Re: Q1 NPS survey results"
+    from: daniel@lumenlabs.io
+    to: [sofia@lumenlabs.io]
+    date: 2026-03-08
+    factIds: []
+    brief: Daniel thanks Sofia and asks her to share the results at the next all-hands.
+
+  - docId: mail.thread-office-wifi-outage.msg-1
+    threadId: thread-office-wifi-outage
+    subject: Office wifi outage — resolved
+    from: ops@lumenlabs.io
+    to: [team@lumenlabs.io]
+    date: 2026-03-11
+    factIds: []
+    brief: Ops notifies the team of a brief office wifi outage that has been resolved.
+  - docId: mail.thread-office-wifi-outage.msg-2
+    threadId: thread-office-wifi-outage
+    subject: "Re: Office wifi outage — resolved"
+    from: ben@lumenlabs.io
+    to: [ops@lumenlabs.io]
+    date: 2026-03-11
+    factIds: []
+    brief: Ben jokes that he didn't even notice since he was heads-down.
+
+  - docId: mail.thread-fenwick-renewal-checkin.msg-1
+    threadId: thread-fenwick-renewal-checkin
+    subject: Fenwick & Cole renewal timeline
+    from: claire@lumenlabs.io
+    to: [devon@lumenlabs.io]
+    date: 2026-03-14
+    factIds: []
+    brief: Claire checks in with Devon on the Fenwick & Cole renewal timeline, unrelated to Northwind.
+  - docId: mail.thread-fenwick-renewal-checkin.msg-2
+    threadId: thread-fenwick-renewal-checkin
+    subject: "Re: Fenwick & Cole renewal timeline"
+    from: devon@lumenlabs.io
+    to: [claire@lumenlabs.io]
+    date: 2026-03-14
+    factIds: []
+    brief: Devon says Fenwick & Cole's renewal is on track for June, no concerns.
+
+  - docId: mail.thread-perf-review-cycle-reminder.msg-1
+    threadId: thread-perf-review-cycle-reminder
+    subject: Performance review cycle starts next week
+    from: ravi@lumenlabs.io
+    to: [managers@lumenlabs.io]
+    date: 2026-03-16
+    factIds: []
+    brief: Ravi reminds all managers that the performance review cycle starts next week.
+  - docId: mail.thread-perf-review-cycle-reminder.msg-2
+    threadId: thread-perf-review-cycle-reminder
+    subject: "Re: Performance review cycle starts next week"
+    from: ines@lumenlabs.io
+    to: [ravi@lumenlabs.io]
+    date: 2026-03-16
+    factIds: []
+    brief: Ines confirms she'll have her team's reviews done on time.
+
+  - docId: mail.thread-swag-order-mixup.msg-1
+    threadId: thread-swag-order-mixup
+    subject: Swag order came in wrong sizes
+    from: omar@lumenlabs.io
+    to: [ops@lumenlabs.io]
+    date: 2026-03-19
+    factIds: []
+    brief: Omar reports the company swag order arrived in the wrong sizes.
+  - docId: mail.thread-swag-order-mixup.msg-2
+    threadId: thread-swag-order-mixup
+    subject: "Re: Swag order came in wrong sizes"
+    from: ops@lumenlabs.io
+    to: [omar@lumenlabs.io]
+    date: 2026-03-19
+    factIds: []
+    brief: Ops says they'll contact the vendor for a reorder.
+  - docId: mail.thread-swag-order-mixup.msg-3
+    threadId: thread-swag-order-mixup
+    subject: "Re: Swag order came in wrong sizes"
+    from: omar@lumenlabs.io
+    to: [ops@lumenlabs.io]
+    date: 2026-03-20
+    factIds: []
+    brief: Omar thanks ops and jokes about keeping the mis-sized shirts as "vintage" merch.
+
+  - docId: mail.thread-support-macros-update.msg-1
+    threadId: thread-support-macros-update
+    subject: Proposed updates to support macros
+    from: grace@lumenlabs.io
+    to: [sofia@lumenlabs.io]
+    date: 2026-03-23
+    factIds: []
+    brief: Grace proposes updated canned-response macros for common support tickets.
+  - docId: mail.thread-support-macros-update.msg-2
+    threadId: thread-support-macros-update
+    subject: "Re: Proposed updates to support macros"
+    from: sofia@lumenlabs.io
+    to: [grace@lumenlabs.io]
+    date: 2026-03-23
+    factIds: []
+    brief: Sofia approves the macro updates and asks Grace to publish them.
+
+  - docId: mail.thread-api-team-standup-notes.msg-1
+    threadId: thread-api-team-standup-notes
+    subject: API team standup notes — this week
+    from: ben@lumenlabs.io
+    to: [noah@lumenlabs.io]
+    date: 2026-03-26
+    factIds: []
+    brief: Ben shares routine API team standup notes, unrelated to the v2 deprecation storyline.
+  - docId: mail.thread-api-team-standup-notes.msg-2
+    threadId: thread-api-team-standup-notes
+    subject: "Re: API team standup notes — this week"
+    from: noah@lumenlabs.io
+    to: [ben@lumenlabs.io]
+    date: 2026-03-26
+    factIds: []
+    brief: Noah thanks Ben and flags a minor doc typo to fix.
+
+  - docId: mail.thread-security-training-reminder.msg-1
+    threadId: thread-security-training-reminder
+    subject: Annual security training due this month
+    from: marcus@lumenlabs.io
+    to: [team@lumenlabs.io]
+    date: 2026-03-30
+    factIds: []
+    brief: Marcus reminds the whole company that annual security-awareness training is due.
+  - docId: mail.thread-security-training-reminder.msg-2
+    threadId: thread-security-training-reminder
+    subject: "Re: Annual security training due this month"
+    from: lena@lumenlabs.io
+    to: [marcus@lumenlabs.io]
+    date: 2026-03-31
+    factIds: []
+    brief: Lena confirms she's completed the training.
+
+  - docId: mail.thread-parking-lot-policy.msg-1
+    threadId: thread-parking-lot-policy
+    subject: New office parking policy
+    from: ops@lumenlabs.io
+    to: [team@lumenlabs.io]
+    date: 2026-04-03
+    factIds: []
+    brief: Ops announces a new office parking reservation policy, purely administrative.
+  - docId: mail.thread-parking-lot-policy.msg-2
+    threadId: thread-parking-lot-policy
+    subject: "Re: New office parking policy"
+    from: yuki@lumenlabs.io
+    to: [ops@lumenlabs.io]
+    date: 2026-04-03
+    factIds: []
+    brief: Yuki asks a clarifying question about visitor parking.
+
+  - docId: mail.thread-customer-webinar-invite.msg-1
+    threadId: thread-customer-webinar-invite
+    subject: Webinar planning — API v3 deep dive
+    from: omar@lumenlabs.io
+    to: [noah@lumenlabs.io]
+    date: 2026-04-06
+    factIds: []
+    brief: Omar proposes a customer webinar covering the Pulse API v3 features.
+  - docId: mail.thread-customer-webinar-invite.msg-2
+    threadId: thread-customer-webinar-invite
+    subject: "Re: Webinar planning — API v3 deep dive"
+    from: noah@lumenlabs.io
+    to: [omar@lumenlabs.io]
+    date: 2026-04-06
+    factIds: []
+    brief: Noah agrees to co-present and suggests a date in late April.
+  - docId: mail.thread-customer-webinar-invite.msg-3
+    threadId: thread-customer-webinar-invite
+    subject: "Re: Webinar planning — API v3 deep dive"
+    from: omar@lumenlabs.io
+    to: [noah@lumenlabs.io]
+    date: 2026-04-07
+    factIds: []
+    brief: Omar confirms the date and says he'll send calendar invites.
+
+  - docId: mail.thread-intern-program-kickoff.msg-1
+    threadId: thread-intern-program-kickoff
+    subject: Summer intern program — kickoff
+    from: ines@lumenlabs.io
+    to: [eng-all@lumenlabs.io]
+    date: 2026-04-13
+    factIds: []
+    brief: Ines announces the summer engineering intern program is kicking off and asks for mentors.
+  - docId: mail.thread-intern-program-kickoff.msg-2
+    threadId: thread-intern-program-kickoff
+    subject: "Re: Summer intern program — kickoff"
+    from: lena@lumenlabs.io
+    to: [ines@lumenlabs.io]
+    date: 2026-04-13
+    factIds: []
+    brief: Lena volunteers to mentor a frontend intern.
+
+  - docId: mail.thread-diwali-holiday-notice.msg-1
+    threadId: thread-diwali-holiday-notice
+    subject: Office closure notice — holiday
+    from: daniel@lumenlabs.io
+    to: [team@lumenlabs.io]
+    date: 2026-04-16
+    factIds: []
+    brief: Daniel sends a routine office-closure notice for an upcoming holiday.
+  - docId: mail.thread-diwali-holiday-notice.msg-2
+    threadId: thread-diwali-holiday-notice
+    subject: "Re: Office closure notice — holiday"
+    from: sofia@lumenlabs.io
+    to: [daniel@lumenlabs.io]
+    date: 2026-04-16
+    factIds: []
+    brief: Sofia asks whether support on-call coverage is still needed that day; Daniel confirms yes.
+
+  - docId: mail.thread-brightpath-lost-deal.msg-1
+    threadId: thread-brightpath-lost-deal
+    subject: BrightPath went with a competitor
+    from: claire@lumenlabs.io
+    to: [daniel@lumenlabs.io]
+    date: 2026-04-18
+    factIds: []
+    brief: >
+      Claire reports that BrightPath Logistics chose a competitor instead of Pulse,
+      citing price as the deciding factor — deliberately similar in shape to the
+      Northwind storyline but with the opposite outcome, to serve as a distractor.
+  - docId: mail.thread-brightpath-lost-deal.msg-2
+    threadId: thread-brightpath-lost-deal
+    subject: "Re: BrightPath went with a competitor"
+    from: daniel@lumenlabs.io
+    to: [claire@lumenlabs.io]
+    date: 2026-04-18
+    factIds: []
+    brief: Daniel asks for a debrief on what the competitor offered differently.
+
+  - docId: mail.thread-customer-case-study-approval.msg-1
+    threadId: thread-customer-case-study-approval
+    subject: Case study draft — need Northwind sign-off
+    from: omar@lumenlabs.io
+    to: [jordan.reyes@northwindretail.com]
+    date: 2026-04-24
+    factIds: []
+    brief: >
+      Omar sends Northwind Retail a draft case study about their renewal for review
+      and approval before publishing — references the renewal only in passing, no
+      new facts.
+  - docId: mail.thread-customer-case-study-approval.msg-2
+    threadId: thread-customer-case-study-approval
+    subject: "Re: Case study draft — need Northwind sign-off"
+    from: jordan.reyes@northwindretail.com
+    to: [omar@lumenlabs.io]
+    date: 2026-04-27
+    factIds: []
+    brief: Jordan approves the case study with one minor wording correction.
+
+  - docId: mail.thread-eng-laptop-refresh.msg-1
+    threadId: thread-eng-laptop-refresh
+    subject: Laptop refresh cycle — sign up
+    from: ines@lumenlabs.io
+    to: [eng-all@lumenlabs.io]
+    date: 2026-04-29
+    factIds: []
+    brief: Ines announces the annual engineering laptop refresh cycle and asks people to sign up.
+  - docId: mail.thread-eng-laptop-refresh.msg-2
+    threadId: thread-eng-laptop-refresh
+    subject: "Re: Laptop refresh cycle — sign up"
+    from: tariq@lumenlabs.io
+    to: [ines@lumenlabs.io]
+    date: 2026-04-29
+    factIds: []
+    brief: Tariq signs up and asks about upgrading to more RAM for local testing.
+
+  - docId: mail.thread-quarterly-okr-check-in.msg-1
+    threadId: thread-quarterly-okr-check-in
+    subject: Q2 OKR check-in — please update by Friday
+    from: priya@lumenlabs.io
+    to: [pms@lumenlabs.io]
+    date: 2026-05-04
+    factIds: []
+    brief: Priya asks all PMs to update their Q2 OKR progress by Friday.
+  - docId: mail.thread-quarterly-okr-check-in.msg-2
+    threadId: thread-quarterly-okr-check-in
+    subject: "Re: Q2 OKR check-in — please update by Friday"
+    from: noah@lumenlabs.io
+    to: [priya@lumenlabs.io]
+    date: 2026-05-04
+    factIds: []
+    brief: Noah confirms his OKRs are on track, citing the successful Helios launch.
+  - docId: mail.thread-quarterly-okr-check-in.msg-3
+    threadId: thread-quarterly-okr-check-in
+    subject: "Re: Q2 OKR check-in — please update by Friday"
+    from: priya@lumenlabs.io
+    to: [noah@lumenlabs.io]
+    date: 2026-05-05
+    factIds: []
+    brief: Priya thanks Noah and asks him to share the Helios adoption numbers next week.
+
+  - docId: mail.thread-support-holiday-coverage.msg-1
+    threadId: thread-support-holiday-coverage
+    subject: Holiday support coverage — volunteers needed
+    from: sofia@lumenlabs.io
+    to: [support-team@lumenlabs.io]
+    date: 2026-05-10
+    factIds: []
+    brief: Sofia asks for volunteers to cover support during the upcoming holiday week.
+  - docId: mail.thread-support-holiday-coverage.msg-2
+    threadId: thread-support-holiday-coverage
+    subject: "Re: Holiday support coverage — volunteers needed"
+    from: grace@lumenlabs.io
+    to: [sofia@lumenlabs.io]
+    date: 2026-05-10
+    factIds: []
+    brief: Grace volunteers to cover two of the days.
+  - docId: mail.thread-support-holiday-coverage.msg-3
+    threadId: thread-support-holiday-coverage
+    subject: "Re: Holiday support coverage — volunteers needed"
+    from: sofia@lumenlabs.io
+    to: [grace@lumenlabs.io]
+    date: 2026-05-11
+    factIds: []
+    brief: Sofia thanks Grace and confirms the schedule is now fully covered.
+
+chat:
+  # ---- Fact-bearing channel-days -----------------------------------------------------
+  - docId: chat.eng-helios.2026-02-18
+    channel: eng-helios
+    date: 2026-02-18
+    participants: [person.amara, person.ravi, person.ben]
+    factIds: [fact.helios-delay-cause, fact.helios-owner]
+    brief: >
+      Amara Chen explains to Ravi and Ben that the billing migration failed load
+      testing at 4x expected volume, meaning Helios cannot hit its 2026-03-10 date
+      and will need to slip to 2026-04-21; Amara confirms she owns the billing
+      migration workstream that's blocking the launch.
+
+  - docId: chat.eng-helios.2026-04-22
+    channel: eng-helios
+    date: 2026-04-22
+    participants: [person.amara, person.ben, person.lena]
+    factIds: []
+    brief: The team celebrates shipping Helios in the channel, light banter, no new facts.
+
+  - docId: chat.sales.2026-01-10
+    channel: sales
+    date: 2026-01-10
+    participants: [person.claire, person.devon]
+    factIds: [fact.pricing-v2-champion]
+    brief: >
+      Claire Jensen tells Devon she's pushing hard for the usage-based pricing
+      change after losing the Northwind Retail deal twice under seat-based pricing.
+
+  - docId: chat.sales.2026-01-15
+    channel: sales
+    date: 2026-01-15
+    participants: [person.claire, person.omar]
+    factIds: []
+    brief: General reactions in the sales channel to the pricing change announcement, no new facts.
+
+  - docId: chat.support-eng.2026-02-10
+    channel: support-eng
+    date: 2026-02-10
+    participants: [person.grace, person.sofia]
+    factIds: [fact.northwind-fix]
+    brief: >
+      Grace Oduya tells Sofia she's shipping a fix that renames the mobile SDK
+      script bundle to avoid ad-blocker filter lists, resolving Northwind's missing
+      replay issue.
+
+  - docId: chat.eng-infra.2026-01-22
+    channel: eng-infra
+    date: 2026-01-22
+    participants: [person.ines, person.tariq, person.ravi]
+    factIds: [fact.infra-migration-owner]
+    brief: >
+      Ines Dubois and Tariq Hassan confirm in the channel that they're jointly
+      taking ownership of executing the Aurora migration.
+
+  - docId: chat.eng-infra.2026-04-01
+    channel: eng-infra
+    date: 2026-04-01
+    participants: [person.ines, person.tariq]
+    factIds: []
+    brief: Routine progress check-in on Aurora migration prep, no new facts beyond what's already decided.
+
+  - docId: chat.general.2026-01-05
+    channel: general
+    date: 2026-01-05
+    participants: [person.ines, person.tariq, person.ravi]
+    factIds: [fact.tariq-start-date]
+    brief: >
+      The team welcomes Tariq Hassan on his first day, 2026-01-05, as the new
+      Senior SRE.
+
+  - docId: chat.general.2026-05-01
+    channel: general
+    date: 2026-05-01
+    participants: [person.yuki, person.daniel]
+    factIds: [fact.offsite-date]
+    brief: >
+      Daniel announces the team offsite is scheduled for 2026-06-18 through
+      2026-06-20 in Lisbon.
+
+  - docId: chat.security.2026-02-27
+    channel: security
+    date: 2026-02-27
+    participants: [person.marcus, person.ravi]
+    factIds: [fact.security-fix-owner]
+    brief: >
+      Marcus Webb confirms he's patched the stored XSS vulnerability in the
+      custom-annotation feature and it's shipping today, 2026-02-27.
+
+  - docId: chat.product.2026-04-10
+    channel: product
+    date: 2026-04-10
+    participants: [person.noah, person.priya]
+    factIds: [fact.api-v2-deprecation-extended]
+    brief: >
+      Noah Fischer tells Priya that after pushback from several large customers,
+      the Pulse API v2 deprecation date is being pushed from 2026-06-01 to
+      2026-09-01 to give them more migration time.
+
+  - docId: chat.offsite-planning.2026-05-05
+    channel: offsite-planning
+    date: 2026-05-05
+    participants: [person.yuki, person.omar]
+    factIds: []
+    brief: Yuki and Omar debate venue options for the Lisbon offsite, no new facts beyond the dates already set.
+
+  - docId: chat.offsite-planning.2026-05-12
+    channel: offsite-planning
+    date: 2026-05-12
+    participants: [person.yuki, person.devon]
+    factIds: []
+    brief: Planning team activities for the offsite — a hike vs. a cooking class debate.
+
+  # ---- Pure noise channel-days -------------------------------------------------------
+  - docId: chat.eng-helios.2026-03-01
+    channel: eng-helios
+    date: 2026-03-01
+    participants: [person.amara, person.ravi]
+    factIds: []
+    brief: Pre-launch status check-in, still targeting the original date at this point, general anxious chatter.
+  - docId: chat.eng-helios.2026-03-12
+    channel: eng-helios
+    date: 2026-03-12
+    participants: [person.amara, person.ben, person.lena]
+    factIds: []
+    brief: The team reacts to missing the original 2026-03-10 date, mostly venting and jokes, no new facts.
+
+  - docId: chat.sales.2026-02-20
+    channel: sales
+    date: 2026-02-20
+    participants: [person.claire, person.devon]
+    factIds: []
+    brief: Discussion of an unrelated small deal in the pipeline, nothing storyline-specific.
+  - docId: chat.sales.2026-04-05
+    channel: sales
+    date: 2026-04-05
+    participants: [person.claire, person.omar]
+    factIds: []
+    brief: Check-in on how the usage-based pricing rollout is landing with prospects generally, no new facts.
+
+  - docId: chat.support-eng.2026-01-15
+    channel: support-eng
+    date: 2026-01-15
+    participants: [person.grace, person.sofia]
+    factIds: []
+    brief: Discussion about updating a few canned macros, unrelated to Northwind.
+  - docId: chat.support-eng.2026-03-15
+    channel: support-eng
+    date: 2026-03-15
+    participants: [person.grace, person.devon]
+    factIds: []
+    brief: Review of monthly ticket volume trends, routine, no new facts.
+
+  - docId: chat.eng-infra.2026-02-10
+    channel: eng-infra
+    date: 2026-02-10
+    participants: [person.tariq, person.ines]
+    factIds: []
+    brief: >
+      Routine reminder about an upcoming SSL certificate rotation across staging
+      services — foreshadows the later Helios TLS issue but is not itself a fact
+      about it; unrelated at the time it's written.
+  - docId: chat.eng-infra.2026-05-16
+    channel: eng-infra
+    date: 2026-05-16
+    participants: [person.ines, person.tariq]
+    factIds: []
+    brief: Post-cutover check-in confirming the Aurora migration went smoothly, no new facts beyond the date already recorded.
+
+  - docId: chat.general.2026-02-14
+    channel: general
+    date: 2026-02-14
+    participants: [person.omar, person.yuki]
+    factIds: []
+    brief: Light office banter about a Valentine's Day treat cart, pure noise.
+  - docId: chat.general.2026-03-20
+    channel: general
+    date: 2026-03-20
+    participants: [person.daniel, person.priya]
+    factIds: []
+    brief: Reminder about the upcoming all-hands meeting time, pure noise.
+
+  - docId: chat.security.2026-01-12
+    channel: security
+    date: 2026-01-12
+    participants: [person.marcus, person.ravi]
+    factIds: []
+    brief: Reminder that annual security-awareness training is due this month, no incident-specific content.
+  - docId: chat.security.2026-04-02
+    channel: security
+    date: 2026-04-02
+    participants: [person.marcus, person.ines]
+    factIds: []
+    brief: Routine quarterly access-review check-in, no new facts.
+
+  - docId: chat.product.2026-01-30
+    channel: product
+    date: 2026-01-30
+    participants: [person.priya, person.noah, person.yuki]
+    factIds: []
+    brief: Roadmap review discussion for H1 2026, general prioritization talk, no new specific facts.
+  - docId: chat.product.2026-03-25
+    channel: product
+    date: 2026-03-25
+    participants: [person.noah, person.priya]
+    factIds: []
+    brief: Triage of recent customer feedback themes, general, no new facts.
+
+  - docId: chat.random.2026-01-08
+    channel: random
+    date: 2026-01-08
+    participants: [person.ben, person.lena, person.omar]
+    factIds: []
+    brief: Weekend-plans banter, pure noise.
+  - docId: chat.random.2026-03-03
+    channel: random
+    date: 2026-03-03
+    participants: [person.grace, person.tariq]
+    factIds: []
+    brief: Debate about the best lunch spot near the office, pure noise.
+  - docId: chat.random.2026-05-20
+    channel: random
+    date: 2026-05-20
+    participants: [person.yuki, person.devon]
+    factIds: []
+    brief: People sharing pet photos, pure noise.
+
+  - docId: chat.exec.2026-01-15
+    channel: exec
+    date: 2026-01-15
+    participants: [person.daniel, person.ravi, person.priya]
+    factIds: []
+    brief: Weekly exec sync notes shared in chat form, general status updates, no single new fact.
+  - docId: chat.exec.2026-02-05
+    channel: exec
+    date: 2026-02-05
+    participants: [person.daniel, person.sofia]
+    factIds: []
+    brief: Discussion of overall hiring plan for the year at a high level, no specific new fact.
+  - docId: chat.exec.2026-04-15
+    channel: exec
+    date: 2026-04-15
+    participants: [person.daniel, person.ravi]
+    factIds: []
+    brief: Runway and budget check-in, general, no new facts.
+
+  - docId: chat.design.2026-01-25
+    channel: design
+    date: 2026-01-25
+    participants: [person.yuki, person.lena]
+    factIds: []
+    brief: Critique session notes for the dashboard redesign, general feedback, no new facts.
+  - docId: chat.design.2026-03-18
+    channel: design
+    date: 2026-03-18
+    participants: [person.yuki, person.noah]
+    factIds: []
+    brief: Discussion of a design system component update, no new facts.
+  - docId: chat.design.2026-05-08
+    channel: design
+    date: 2026-05-08
+    participants: [person.yuki, person.omar]
+    factIds: []
+    brief: Brainstorming offsite branding/swag ideas, pure noise.
+
+  - docId: chat.onboarding.2026-01-06
+    channel: onboarding
+    date: 2026-01-06
+    participants: [person.ines, person.tariq]
+    factIds: []
+    brief: Ines introduces Tariq to his onboarding buddy, general, no new facts beyond his start date already recorded elsewhere.
+  - docId: chat.onboarding.2026-02-02
+    channel: onboarding
+    date: 2026-02-02
+    participants: [person.sofia, person.grace]
+    factIds: []
+    brief: Orientation chatter for a different, unnamed new support hire, unrelated to Tariq.
+  - docId: chat.onboarding.2026-04-20
+    channel: onboarding
+    date: 2026-04-20
+    participants: [person.ines, person.lena]
+    factIds: []
+    brief: Feedback discussion on improving the onboarding doc, general, no new facts.
+
+  - docId: chat.incidents.2026-02-03
+    channel: incidents
+    date: 2026-02-03
+    participants: [person.grace, person.sofia]
+    factIds: []
+    brief: >
+      Initial triage chatter about the Northwind missing-replays report — sets
+      context but the root cause and fix are recorded elsewhere (notes and
+      support-eng channel), not here.
+  - docId: chat.incidents.2026-02-25
+    channel: incidents
+    date: 2026-02-25
+    participants: [person.marcus, person.ravi]
+    factIds: []
+    brief: >
+      Initial triage chatter about the stored XSS report — sets context but the
+      fix and bounty details are recorded elsewhere (security channel and notes).
+  - docId: chat.incidents.2026-03-22
+    channel: incidents
+    date: 2026-03-22
+    participants: [person.tariq, person.ben]
+    factIds: []
+    brief: A brief, unrelated dashboard outage lasting 12 minutes, resolved quickly, minor incident with no lasting facts.
+
+  - docId: chat.api-team.2026-02-15
+    channel: api-team
+    date: 2026-02-15
+    participants: [person.ben, person.noah]
+    factIds: []
+    brief: Planning discussion for the API v3 rollout, general, no new facts beyond the launch date recorded in notes.
+  - docId: chat.api-team.2026-03-05
+    channel: api-team
+    date: 2026-03-05
+    participants: [person.ben, person.noah]
+    factIds: []
+    brief: Retro on the API v3 launch a few days prior, general lessons learned, no new facts.
+  - docId: chat.api-team.2026-04-12
+    channel: api-team
+    date: 2026-04-12
+    participants: [person.noah, person.ben]
+    factIds: []
+    brief: >
+      Prepping FAQ answers for customers about the API v2 deprecation — references
+      the extended date but does not introduce or restate it as a formal fact source.
+
+  - docId: chat.board-prep.2026-01-28
+    channel: board-prep
+    date: 2026-01-28
+    participants: [person.daniel, person.priya, person.ravi]
+    factIds: []
+    brief: Prepping the board deck ahead of the 2026-02-01 meeting, general, no new facts (the ARR figure is recorded in notes, after the meeting).
+  - docId: chat.board-prep.2026-04-25
+    channel: board-prep
+    date: 2026-04-25
+    participants: [person.daniel, person.priya]
+    factIds: []
+    brief: Kickoff for Q2 board prep, general, no new facts.
+
+notes:
+  # ---- Fact-bearing notes ------------------------------------------------------------
+  - docId: notes.helios-loadtest-postmortem
+    title: "Postmortem: Helios load-test failure"
+    tags: [helios, postmortem, infra]
+    updated: 2026-02-19
+    factIds: [fact.helios-root-cause-detail]
+    brief: >
+      A postmortem document explaining that the Helios load-test failure was traced
+      to a connection-pool exhaustion bug in the new Stripe usage-metering service
+      under concurrent writes; links to [[Helios]] and [[Billing migration]].
+
+  - docId: notes.pricing-v1-launch-doc
+    title: "Pulse pricing (2025 launch)"
+    tags: [pricing, product]
+    updated: 2025-06-01
+    factIds: [fact.pricing-v1-decision]
+    brief: >
+      An early internal doc recording that Pulse launched with seat-based pricing
+      at $49 per seat per month in 2025.
+
+  - docId: notes.pricing-v2-decision-record
+    title: "Decision record: usage-based pricing"
+    tags: [pricing, decision-record, product]
+    updated: 2026-01-14
+    factIds: [fact.pricing-v2-decision]
+    brief: >
+      A decision record dated 2026-01-14 approving usage-based pricing (billed per
+      session recorded) to replace seat-based pricing, effective 2026-04-01; notes
+      that it supersedes the original 2025 pricing model, linking to
+      [[Pulse pricing (2025 launch)]].
+
+  - docId: notes.northwind-support-postmortem
+    title: "Postmortem: Northwind missing session replays"
+    tags: [postmortem, support, northwind]
+    updated: 2026-02-09
+    factIds: [fact.northwind-root-cause]
+    brief: >
+      A support postmortem explaining that Northwind Retail's missing session
+      replays were caused by an ad-blocker false-positive flagging Pulse's mobile
+      SDK script as a tracker.
+
+  - docId: notes.infra-review-2026-01-20
+    title: "Infra review — 2026-01-20"
+    tags: [infra, meeting-notes]
+    updated: 2026-01-20
+    factIds: [fact.infra-migration-decision]
+    brief: >
+      Meeting notes from the 2026-01-20 infra review recording the decision to
+      migrate the primary Postgres database from self-hosted to a managed
+      provider (Aurora) to reduce on-call burden.
+
+  - docId: notes.aurora-migration-risk-assessment
+    title: "Aurora migration — risk assessment"
+    tags: [infra, aurora-migration, risk]
+    updated: 2026-04-20
+    factIds: [fact.infra-migration-risk]
+    brief: >
+      A risk assessment identifying replication lag under the increased
+      session-write volume expected after the Helios launch as the main risk for
+      the Aurora cutover; links to [[Helios]].
+
+  - docId: notes.tariq-onboarding-plan
+    title: "Onboarding plan — Tariq Hassan"
+    tags: [onboarding, sre]
+    updated: 2026-01-04
+    factIds: [fact.tariq-first-project]
+    brief: >
+      An onboarding plan noting Tariq Hassan's first project assignment is the
+      Aurora migration, alongside Ines Dubois.
+
+  - docId: notes.security-incident-log
+    title: "Security incident log — stored XSS (2026-02-25)"
+    tags: [security, incident-log]
+    updated: 2026-03-01
+    factIds: [fact.security-bounty-paid]
+    brief: >
+      An incident log entry for the stored XSS finding noting the researcher was
+      paid a $1,500 bounty, approved by Ravi Anand.
+
+  - docId: notes.api-v3-changelog
+    title: "Pulse API changelog — v3"
+    tags: [api, changelog]
+    updated: 2026-03-01
+    factIds: [fact.api-v3-launch]
+    brief: >
+      A changelog entry recording that Pulse API v3 was released on 2026-03-01,
+      adding webhook-based event delivery.
+
+  - docId: notes.api-v2-deprecation-comms-plan
+    title: "API v2 deprecation — communications plan"
+    tags: [api, product, comms]
+    updated: 2026-03-04
+    factIds: [fact.api-v2-deprecation-owner]
+    brief: >
+      A comms plan noting Noah Fischer owns communicating the Pulse API v2
+      deprecation timeline to customers.
+
+  - docId: notes.board-meeting-2026-02-01-summary
+    title: "Board meeting summary — 2026-02-01"
+    tags: [board, exec]
+    updated: 2026-02-01
+    factIds: [fact.board-update-arr]
+    brief: >
+      A summary of the 2026-02-01 board meeting recording that Lumen Labs reported
+      $2.1M ARR, up from $1.4M the prior quarter.
+
+  # ---- Noise / reference notes --------------------------------------------------------
+  - docId: notes.engineering-onboarding-runbook
+    title: "Engineering onboarding runbook"
+    tags: [runbook, onboarding, eng]
+    updated: 2025-09-01
+    factIds: []
+    brief: A generic engineering onboarding runbook covering dev environment setup, repo access, and tooling — no storyline-specific content.
+
+  - docId: notes.incident-response-runbook
+    title: "Incident response runbook"
+    tags: [runbook, incidents, oncall]
+    updated: 2025-10-15
+    factIds: []
+    brief: A generic incident-response process runbook (severity levels, escalation paths) — no storyline-specific content.
+
+  - docId: notes.design-system-guidelines
+    title: "Design system guidelines"
+    tags: [design, guidelines]
+    updated: 2025-11-01
+    factIds: []
+    brief: General design system component and usage guidelines, no storyline-specific content.
+
+  - docId: notes.meeting-notes-template
+    title: "Meeting notes template"
+    tags: [template, meeting-notes]
+    updated: 2025-08-01
+    factIds: []
+    brief: A blank template for structuring meeting notes, purely a reference document.
+
+  - docId: notes.pulse-terminology-glossary
+    title: "Pulse terminology glossary"
+    tags: [glossary, product]
+    updated: 2025-09-15
+    factIds: []
+    brief: A glossary defining Pulse product terms (session, replay, event, funnel), no storyline-specific content.
+
+  - docId: notes.q1-2026-okrs
+    title: "Q1 2026 OKRs"
+    tags: [okrs, planning]
+    updated: 2026-01-02
+    factIds: []
+    brief: Company-wide Q1 2026 OKRs at a general level, does not restate any specific storyline fact as ground truth.
+
+  - docId: notes.remote-work-policy
+    title: "Remote work policy"
+    tags: [policy, hr]
+    updated: 2025-07-01
+    factIds: []
+    brief: A generic remote/hybrid work policy document, no storyline-specific content.
+
+  - docId: notes.oncall-rotation-schedule
+    title: "On-call rotation schedule (reference)"
+    tags: [oncall, infra, reference]
+    updated: 2026-03-01
+    factIds: []
+    brief: A living reference doc listing the current on-call rotation, general, no single new fact to verify against.
+
+  - docId: notes.customer-success-playbook
+    title: "Customer success playbook"
+    tags: [support, playbook]
+    updated: 2025-10-01
+    factIds: []
+    brief: A general customer-success playbook (health scoring, QBR cadence), no storyline-specific content.
+
+  - docId: notes.sales-battlecard-competitor-x
+    title: "Sales battlecard — Competitor X"
+    tags: [sales, competitive]
+    updated: 2026-01-05
+    factIds: []
+    brief: A generic competitive battlecard comparing Pulse to an unnamed competitor, no storyline-specific content.
+
+  - docId: notes.architecture-decision-record-event-bus
+    title: "ADR: introducing an internal event bus"
+    tags: [architecture, adr, infra]
+    updated: 2025-12-01
+    factIds: []
+    brief: An architecture decision record proposing an internal event bus for service communication, unrelated to the Aurora migration storyline.
+
+  - docId: notes.amara-personal-todo
+    title: "Amara — scratch TODOs"
+    tags: [personal]
+    updated: 2026-02-05
+    factIds: []
+    brief: >
+      Amara's informal personal TODO list mentioning the billing migration in
+      passing as one of several tasks, written casually and not as an authoritative
+      source — deliberately a distractor that mentions the topic without being the
+      fact's assigned source.
+
+  - docId: notes.weekly-eng-sync-2026-01-08
+    title: "Weekly eng sync — 2026-01-08"
+    tags: [meeting-notes, eng]
+    updated: 2026-01-08
+    factIds: []
+    brief: Routine weekly engineering sync notes, general status updates across teams, no single new fact.
+
+  - docId: notes.weekly-eng-sync-2026-02-05
+    title: "Weekly eng sync — 2026-02-05"
+    tags: [meeting-notes, eng]
+    updated: 2026-02-05
+    factIds: []
+    brief: Routine weekly engineering sync notes, general status updates across teams, no single new fact.
+
+  - docId: notes.weekly-eng-sync-2026-03-12
+    title: "Weekly eng sync — 2026-03-12"
+    tags: [meeting-notes, eng]
+    updated: 2026-03-12
+    factIds: []
+    brief: Routine weekly engineering sync notes, general status updates across teams, no single new fact.
+
+  - docId: notes.product-roadmap-h1-2026
+    title: "Product roadmap — H1 2026"
+    tags: [product, roadmap]
+    updated: 2026-01-10
+    factIds: []
+    brief: A general H1 2026 product roadmap overview, mentions Helios and API v3 only as roadmap line items, not as an authoritative source for their specific facts.
+
+  - docId: notes.support-macros-reference
+    title: "Support macros reference"
+    tags: [support, reference]
+    updated: 2026-03-24
+    factIds: []
+    brief: A living reference doc of canned support responses, general, no storyline-specific content.
+
+  - docId: notes.brand-style-guide
+    title: "Brand style guide"
+    tags: [brand, marketing]
+    updated: 2025-08-15
+    factIds: []
+    brief: A generic brand/style guide (logo usage, colors, tone), no storyline-specific content.
+
+  - docId: notes.data-retention-policy
+    title: "Data retention policy"
+    tags: [policy, compliance]
+    updated: 2025-11-20
+    factIds: []
+    brief: A generic data retention policy document, no storyline-specific content.
+
+  - docId: notes.gdpr-compliance-checklist
+    title: "GDPR compliance checklist"
+    tags: [compliance, policy]
+    updated: 2025-11-22
+    factIds: []
+    brief: A generic GDPR compliance checklist, no storyline-specific content.
+
+  - docId: notes.new-hire-buddy-program
+    title: "New-hire buddy program"
+    tags: [onboarding, hr]
+    updated: 2025-09-10
+    factIds: []
+    brief: A general description of the new-hire buddy program process, no storyline-specific content.
+
+  - docId: notes.expense-policy
+    title: "Expense policy"
+    tags: [policy, finance]
+    updated: 2025-07-15
+    factIds: []
+    brief: A generic company expense policy document, no storyline-specific content.
+
+  - docId: notes.travel-booking-guide
+    title: "Travel booking guide"
+    tags: [travel, reference]
+    updated: 2025-07-20
+    factIds: []
+    brief: A generic guide for booking company travel, no storyline-specific content.
+
+  - docId: notes.design-critique-dashboard-redesign
+    title: "Design critique — dashboard redesign"
+    tags: [design, critique]
+    updated: 2026-01-26
+    factIds: []
+    brief: General design critique notes for the dashboard redesign project, no storyline-specific facts.
+
+  - docId: notes.customer-health-score-rubric
+    title: "Customer health score rubric"
+    tags: [support, rubric]
+    updated: 2025-10-05
+    factIds: []
+    brief: A general rubric for scoring customer account health, no storyline-specific content.
+
+  - docId: notes.marketing-campaign-retro-q4
+    title: "Marketing campaign retro — Q4 2025"
+    tags: [marketing, retro]
+    updated: 2026-01-06
+    factIds: []
+    brief: A retrospective on a Q4 2025 marketing campaign, general, no storyline-specific content.
+
+  - docId: notes.interview-loop-guide-backend-engineer
+    title: "Interview loop guide — Backend Engineer"
+    tags: [hiring, guide]
+    updated: 2025-08-25
+    factIds: []
+    brief: A generic interview loop guide for backend engineering candidates, no storyline-specific content.
+
+  - docId: notes.postmortem-template
+    title: "Postmortem template"
+    tags: [template, postmortem]
+    updated: 2025-08-05
+    factIds: []
+    brief: A blank postmortem template, purely a reference document with placeholder sections.
+
+  - docId: notes.company-values
+    title: "Company values"
+    tags: [culture]
+    updated: 2025-06-15
+    factIds: []
+    brief: A general statement of Lumen Labs' company values, no storyline-specific content.

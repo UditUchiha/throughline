@@ -1,0 +1,619 @@
+# Question set for the "Lumen Labs" corpus (throughline PLAN.md §6/§7).
+#
+# `requiredFacts` point at ids in corpus/ledger/facts.yaml; a fact's `expressedIn` gives
+# the exact documents that must be retrieved, which is what makes recall@k a deterministic
+# check rather than an LLM judgment (see PLAN.md §7). `requiredSources` names the source
+# types (mail/chat/notes) a correct answer must draw from — used to score whether the
+# planner actually fanned out across sources rather than answering from one lucky retrieval.
+# `minHops` is the number of *additional* retrieval rounds beyond the first expected to be
+# needed (0 = single retrieval; 1 = one reflect-and-follow-up round; 2 = two).
+#
+# Adversarial/injection questions are deferred to M5 (PLAN.md §6) once live/adversarial
+# documents exist — not included here.
+
+questions:
+  # ================================================================================
+  # Single-hop (12) — one fact, one source. Also proves `triage` correctly skips
+  # planning for questions that don't need it.
+  # ================================================================================
+  - id: q.tariq-start-date
+    question: "When did Tariq Hassan start at Lumen Labs?"
+    category: single-hop
+    requiredFacts: [fact.tariq-start-date]
+    requiredSources: [chat]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Tariq Hassan started at Lumen Labs on 2026-01-05."
+
+  - id: q.offsite-dates
+    question: "When and where is the Lumen Labs team offsite?"
+    category: single-hop
+    requiredFacts: [fact.offsite-date]
+    requiredSources: [chat]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "The offsite is 2026-06-18 through 2026-06-20 in Lisbon."
+
+  - id: q.offsite-organizer
+    question: "Who is organizing the Lisbon offsite logistics?"
+    category: single-hop
+    requiredFacts: [fact.offsite-organizer]
+    requiredSources: [mail]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Yuki Tanaka is organizing the offsite logistics."
+
+  - id: q.board-arr
+    question: "What ARR did Lumen Labs report at the February 2026 board meeting?"
+    category: single-hop
+    requiredFacts: [fact.board-update-arr]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Lumen Labs reported $2.1M ARR at the 2026-02-01 board meeting, up from $1.4M the prior quarter."
+
+  - id: q.api-v3-launch-date
+    question: "When was Pulse API v3 released?"
+    category: single-hop
+    requiredFacts: [fact.api-v3-launch]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Pulse API v3 was released on 2026-03-01."
+
+  - id: q.helios-owner
+    question: "Who owns the billing migration workstream that was blocking Helios?"
+    category: single-hop
+    requiredFacts: [fact.helios-owner]
+    requiredSources: [chat]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Amara Chen owns the billing migration workstream."
+
+  - id: q.aurora-cutover-date
+    question: "When is the Aurora database cutover scheduled?"
+    category: single-hop
+    requiredFacts: [fact.infra-migration-date]
+    requiredSources: [mail]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "The Aurora cutover is scheduled for 2026-05-15, with a 48-hour rollback window."
+
+  - id: q.northwind-bug-report-date
+    question: "When did Northwind Retail report missing session replays?"
+    category: single-hop
+    requiredFacts: [fact.northwind-bug]
+    requiredSources: [mail]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Northwind Retail reported the issue starting 2026-02-03."
+
+  - id: q.tariq-hire-approver
+    question: "Who approved hiring Tariq Hassan?"
+    category: single-hop
+    requiredFacts: [fact.tariq-hire-approval]
+    requiredSources: [mail]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "Ravi Anand approved hiring Tariq Hassan, on 2025-12-10."
+
+  - id: q.security-bounty-amount
+    question: "How much was the bug bounty paid for the stored XSS finding?"
+    category: single-hop
+    requiredFacts: [fact.security-bounty-paid]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "$1,500, approved by Ravi Anand."
+
+  - id: q.board-headcount-target
+    question: "What headcount did the board approve for the end of 2026?"
+    category: single-hop
+    requiredFacts: [fact.board-update-headcount]
+    requiredSources: [mail]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "The board approved growing headcount to 35 by the end of 2026."
+
+  - id: q.infra-migration-decision-date
+    question: "When did the team decide to migrate to Aurora?"
+    category: single-hop
+    requiredFacts: [fact.infra-migration-decision]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "The decision was made at the infra review on 2026-01-20, to reduce on-call burden."
+
+  # ================================================================================
+  # Multi-hop, cross-source (20) — the core category. Requires ≥2 facts from ≥2
+  # different source types.
+  # ================================================================================
+  - id: q.helios-delay-why-and-who
+    question: "Why did the Helios launch slip, and who approved the new date?"
+    category: multi-hop
+    requiredFacts: [fact.helios-delay-cause, fact.helios-delay-signoff]
+    requiredSources: [chat, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Helios slipped because the billing migration failed load testing at 4x
+      expected volume; Priya Raman approved the revised 2026-04-21 date on 2026-02-20.
+
+  - id: q.helios-full-story
+    question: "What was the root cause of the Helios delay, and what happened when it eventually shipped?"
+    category: multi-hop
+    requiredFacts: [fact.helios-root-cause-detail, fact.helios-launch-final]
+    requiredSources: [notes, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      The root cause was a connection-pool exhaustion bug in the new Stripe
+      usage-metering service under concurrent writes. Helios ultimately shipped
+      2026-04-22, one day after the approved date, due to a separate last-minute
+      TLS certificate renewal issue in staging.
+
+  - id: q.northwind-report-vs-cause
+    question: "What did Northwind Retail originally report, and what was actually causing it?"
+    category: multi-hop
+    requiredFacts: [fact.northwind-bug, fact.northwind-root-cause]
+    requiredSources: [mail, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Northwind reported missing session replays on their mobile checkout flow
+      starting 2026-02-03; the actual cause was an ad-blocker false-positive
+      flagging Pulse's mobile SDK script as a tracker.
+
+  - id: q.northwind-renewal-pricing
+    question: "Did Northwind Retail renew their contract, and under which pricing model?"
+    category: multi-hop
+    requiredFacts: [fact.northwind-outcome, fact.pricing-v2-decision]
+    requiredSources: [mail, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Yes — Northwind Retail renewed on 2026-03-01, under the new usage-based
+      pricing model.
+
+  - id: q.pricing-change-drivers
+    question: "Why did Lumen Labs move to usage-based pricing, and who championed the change internally?"
+    category: multi-hop
+    requiredFacts: [fact.pricing-v2-rationale, fact.pricing-v2-champion]
+    requiredSources: [mail, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Enterprise prospects, including Northwind Retail, were refusing seat-based
+      contracts during procurement. Claire Jensen championed the change internally
+      after losing the Northwind deal twice under seat-based pricing.
+
+  - id: q.pricing-decision-and-rationale
+    question: "When was usage-based pricing approved, and what customer example was used to justify it?"
+    category: multi-hop
+    requiredFacts: [fact.pricing-v2-decision, fact.pricing-v2-rationale]
+    requiredSources: [notes, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Approved 2026-01-14, effective 2026-04-01; Northwind Retail's refusal to sign
+      a seat-based contract during procurement was the driving example.
+
+  - id: q.aurora-owners-and-risk
+    question: "Who owns the Aurora migration, and what's the main risk the team identified?"
+    category: multi-hop
+    requiredFacts: [fact.infra-migration-owner, fact.infra-migration-risk]
+    requiredSources: [chat, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Ines Dubois and Tariq Hassan jointly own the migration. The main identified
+      risk is replication lag under the increased session-write volume expected
+      after the Helios launch.
+
+  - id: q.aurora-risk-and-cutover-date
+    question: "What migration risk is connected to the Helios launch, and when is the Aurora cutover happening?"
+    category: multi-hop
+    requiredFacts: [fact.infra-migration-risk, fact.infra-migration-date]
+    requiredSources: [notes, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Replication lag under Helios's increased session-write volume is the
+      identified risk. The Aurora cutover is scheduled for 2026-05-15.
+
+  - id: q.tariq-hire-to-project
+    question: "Who approved Tariq Hassan's hire, and what was his first project once he started?"
+    category: multi-hop
+    requiredFacts: [fact.tariq-hire-approval, fact.tariq-first-project]
+    requiredSources: [mail, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Ravi Anand approved the hire. Tariq's first project was the Aurora
+      migration, alongside Ines Dubois.
+
+  - id: q.tariq-full-onboarding
+    question: "When did Tariq Hassan start, and what was he assigned to work on first?"
+    category: multi-hop
+    requiredFacts: [fact.tariq-start-date, fact.tariq-first-project]
+    requiredSources: [chat, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      He started 2026-01-05, and his first project was the Aurora migration
+      alongside Ines Dubois.
+
+  - id: q.security-xss-full
+    question: "Who found the stored XSS vulnerability, who fixed it, and was a bounty paid?"
+    category: multi-hop
+    requiredFacts: [fact.security-finding, fact.security-fix-owner, fact.security-bounty-paid]
+    requiredSources: [mail, chat, notes]
+    minHops: 2
+    expectedAbstention: false
+    referenceAnswer: >
+      An external researcher reported it on 2026-02-25; Marcus Webb patched it
+      on 2026-02-27; the researcher was paid a $1,500 bounty, approved by Ravi Anand.
+
+  - id: q.security-fix-and-bounty
+    question: "Who fixed the stored XSS vulnerability, and how much was the researcher paid?"
+    category: multi-hop
+    requiredFacts: [fact.security-fix-owner, fact.security-bounty-paid]
+    requiredSources: [chat, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "Marcus Webb fixed it; the researcher was paid a $1,500 bounty."
+
+  - id: q.api-v3-and-v2-deprecation
+    question: "When was API v3 released, and what's the current deprecation date for API v2?"
+    category: multi-hop
+    requiredFacts: [fact.api-v3-launch, fact.api-v2-deprecation-extended]
+    requiredSources: [notes, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "API v3 was released 2026-03-01. API v2's current deprecation date is 2026-09-01."
+
+  - id: q.api-v2-deprecation-owner-and-date
+    question: "Who owns communicating the API v2 deprecation, and what is the current deprecation date?"
+    category: multi-hop
+    requiredFacts: [fact.api-v2-deprecation-owner, fact.api-v2-deprecation-extended]
+    requiredSources: [notes, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "Noah Fischer owns the communication; the current deprecation date is 2026-09-01."
+
+  - id: q.helios-owner-and-root-cause
+    question: "Who owns the workstream that caused the Helios delay, and what exactly went wrong technically?"
+    category: multi-hop
+    requiredFacts: [fact.helios-owner, fact.helios-root-cause-detail]
+    requiredSources: [chat, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Amara Chen owns it; the technical cause was a connection-pool exhaustion
+      bug in the new Stripe usage-metering service under concurrent writes.
+
+  - id: q.board-full-outcomes
+    question: "What did the board approve regarding ARR reporting and headcount at the February 2026 meeting?"
+    category: multi-hop
+    requiredFacts: [fact.board-update-arr, fact.board-update-headcount]
+    requiredSources: [notes, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      $2.1M ARR was reported (up from $1.4M), and the board approved growing
+      headcount to 35 by end of 2026.
+
+  - id: q.offsite-full-details
+    question: "When is the offsite, and who's organizing it?"
+    category: multi-hop
+    requiredFacts: [fact.offsite-date, fact.offsite-organizer]
+    requiredSources: [chat, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "2026-06-18 to 2026-06-20 in Lisbon, organized by Yuki Tanaka."
+
+  - id: q.northwind-fix-and-cause
+    question: "Who fixed Northwind's session replay issue, and what caused it in the first place?"
+    category: multi-hop
+    requiredFacts: [fact.northwind-fix, fact.northwind-root-cause]
+    requiredSources: [chat, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Grace Oduya fixed it (renaming the SDK script bundle on 2026-02-10); it was
+      caused by an ad-blocker false-positive on the mobile SDK script.
+
+  - id: q.helios-signoff-and-owner
+    question: "Who approved the revised Helios launch date, and who was responsible for the workstream that caused the original delay?"
+    category: multi-hop
+    requiredFacts: [fact.helios-delay-signoff, fact.helios-owner]
+    requiredSources: [mail, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "Priya Raman approved the new date; Amara Chen owned the billing migration workstream that caused the delay."
+
+  - id: q.tariq-hire-and-start
+    question: "Who approved hiring Tariq Hassan, and when did he actually start?"
+    category: multi-hop
+    requiredFacts: [fact.tariq-hire-approval, fact.tariq-start-date]
+    requiredSources: [mail, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "Ravi Anand approved the hire on 2025-12-10; Tariq started on 2026-01-05."
+
+  # ================================================================================
+  # Temporal / superseded (8) — a fact changed; only the current value is correct.
+  # Punishes naive similarity retrieval that surfaces the outdated fact.
+  # ================================================================================
+  - id: q.current-pricing-model
+    question: "What is Lumen Labs' current pricing model?"
+    category: temporal
+    requiredFacts: [fact.pricing-v2-decision]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: >
+      Usage-based pricing (billed per session recorded), effective 2026-04-01 —
+      not the original seat-based model.
+    notes: >
+      Distractor: notes.pricing-v1-launch-doc describes the superseded seat-based
+      model and is lexically similar ("pricing", "Pulse"); a correct answer must
+      not return the superseded fact.
+
+  - id: q.current-api-v2-deprecation-date
+    question: "When is Pulse API v2 currently scheduled to be deprecated?"
+    category: temporal
+    requiredFacts: [fact.api-v2-deprecation-extended]
+    requiredSources: [chat]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "2026-09-01 — the original 2026-06-01 date was pushed back."
+    notes: >
+      Distractor: mail.thread-api-v2-deprecation-notice states the original,
+      superseded 2026-06-01 date.
+
+  - id: q.pricing-per-seat-still-active
+    question: "Is Lumen Labs still charging customers per seat?"
+    category: temporal
+    requiredFacts: [fact.pricing-v2-decision]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "No — usage-based pricing replaced seat-based pricing as of 2026-04-01."
+
+  - id: q.api-v2-deprecation-date-changed
+    question: "Lumen Labs originally announced an API v2 deprecation date — has that date changed?"
+    category: temporal
+    requiredFacts: [fact.api-v2-deprecation-date, fact.api-v2-deprecation-extended]
+    requiredSources: [mail, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Yes — it was originally 2026-06-01 and was pushed to 2026-09-01 after
+      customer requests for more migration time.
+
+  - id: q.pricing-launch-vs-today
+    question: "What pricing model was Pulse launched with, and is that still the case today?"
+    category: temporal
+    requiredFacts: [fact.pricing-v1-decision, fact.pricing-v2-decision]
+    requiredSources: [notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Pulse launched with seat-based pricing ($49/seat/month) in 2025; that was
+      replaced by usage-based pricing effective 2026-04-01, so it is no longer
+      the current model.
+
+  - id: q.api-v2-sunset-for-customer
+    question: "If a customer asks today when API v2 will be sunset, what should they be told?"
+    category: temporal
+    requiredFacts: [fact.api-v2-deprecation-extended]
+    requiredSources: [chat]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: "2026-09-01 — the current, extended deprecation date."
+    notes: "Distractor: the original 2026-06-01 date is still present in mail and must not be surfaced as current."
+
+  - id: q.northwind-renewal-under-which-model
+    question: "Was Northwind Retail's 2026-03-01 renewal billed under the old or new pricing model?"
+    category: temporal
+    requiredFacts: [fact.northwind-outcome, fact.pricing-v2-decision]
+    requiredSources: [mail, notes]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      The new (usage-based) model — usage-based pricing was already approved and
+      effective by the time Northwind renewed.
+
+  - id: q.api-v2-original-date-still-accurate
+    question: "What was Lumen Labs' original API v2 deprecation date, and is it still accurate?"
+    category: temporal
+    requiredFacts: [fact.api-v2-deprecation-date, fact.api-v2-deprecation-extended]
+    requiredSources: [mail, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      Originally 2026-06-01; no longer accurate — it was extended to 2026-09-01.
+
+  # ================================================================================
+  # Distractor-heavy (8) — near-duplicate, plausible-but-wrong content exists in the
+  # corpus and a shallow retrieval is likely to pick the wrong one.
+  # ================================================================================
+  - id: q.security-vulnerability-disambiguation
+    question: "What security vulnerability did Lumen Labs disclose, and how was it resolved?"
+    category: distractor
+    requiredFacts: [fact.security-finding, fact.security-fix-owner, fact.security-bounty-paid]
+    requiredSources: [mail, chat, notes]
+    minHops: 2
+    expectedAbstention: false
+    referenceAnswer: >
+      There were actually two separate findings. The more recent and prominent
+      one: a stored XSS vulnerability in the dashboard's custom-annotation
+      feature (reported 2026-02-25), fixed by Marcus Webb on 2026-02-27, with a
+      $1,500 bounty paid. A good answer should note the disambiguation rather
+      than silently picking one.
+    notes: >
+      Distractor: fact.security-finding-2 (open-redirect, 2025-11-12, fixed by
+      Ben Holt, no bounty) is a separate, earlier, and textually similar finding.
+
+  - id: q.bounty-payment-lookup
+    question: "Was a bug bounty paid for a Lumen Labs security finding, and if so, how much?"
+    category: distractor
+    requiredFacts: [fact.security-bounty-paid]
+    requiredSources: [notes]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: >
+      Yes, $1,500 for the stored XSS finding. (A separate, earlier open-redirect
+      finding did not receive a bounty — it was out of program scope at the time.)
+    notes: "Distractor: fact.security-finding-2 describes a no-bounty case for a different, earlier finding."
+
+  - id: q.helios-delay-cause-authoritative-source
+    question: "What exactly caused the Helios delay, according to the team's internal discussion?"
+    category: distractor
+    requiredFacts: [fact.helios-delay-cause]
+    requiredSources: [chat]
+    minHops: 0
+    expectedAbstention: false
+    referenceAnswer: >
+      The billing migration failed load testing at 4x expected volume.
+    notes: >
+      Distractor: notes.amara-personal-todo mentions "billing migration" casually
+      in a personal TODO list; it is not the authoritative source and should not
+      be preferred over the actual team discussion in chat.eng-helios.2026-02-18.
+
+  - id: q.enterprise-renewal-after-issue
+    question: "Which enterprise customer renewed their contract after a product issue was resolved for them?"
+    category: distractor
+    requiredFacts: [fact.northwind-outcome, fact.northwind-bug]
+    requiredSources: [mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "Northwind Retail, after their missing-session-replay issue was fixed."
+    notes: >
+      Distractor: mail.thread-brightpath-lost-deal describes a different customer
+      (BrightPath Logistics) in a similarly shaped "customer + deal outcome"
+      thread, but BrightPath's deal was lost to a competitor, not renewed.
+
+  - id: q.api-version-for-new-integration
+    question: "Which Pulse API version should a new customer integrate against — v2 or v3?"
+    category: distractor
+    requiredFacts: [fact.api-v3-launch, fact.api-v2-deprecation-extended]
+    requiredSources: [notes, chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      v3 — it's the current version (released 2026-03-01); v2 is being
+      deprecated (currently scheduled for 2026-09-01).
+
+  - id: q.billing-migration-vs-aurora-migration-owner
+    question: "Who owns the Aurora migration, versus who owns the billing migration that blocked Helios?"
+    category: distractor
+    requiredFacts: [fact.infra-migration-owner, fact.helios-owner]
+    requiredSources: [chat]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      The Aurora migration is owned jointly by Ines Dubois and Tariq Hassan; the
+      billing migration (a separate project) is owned by Amara Chen.
+    notes: "Distractor: both are called a 'migration' and both are infra-adjacent, but they are unrelated projects with different owners."
+
+  - id: q.paid-researcher-attribution
+    question: "Which security researcher received a bounty payment, and for what vulnerability?"
+    category: distractor
+    requiredFacts: [fact.security-bounty-paid, fact.security-finding]
+    requiredSources: [notes, mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: >
+      The researcher who reported the stored XSS vulnerability (2026-02-25) was
+      paid $1,500; the researcher behind the separate, earlier open-redirect
+      report was not paid.
+
+  - id: q.helios-vs-aurora-dates
+    question: "What date did Helios ship, and what date is the Aurora migration cutover?"
+    category: distractor
+    requiredFacts: [fact.helios-launch-final, fact.infra-migration-date]
+    requiredSources: [mail]
+    minHops: 1
+    expectedAbstention: false
+    referenceAnswer: "Helios shipped 2026-04-22; the Aurora cutover is scheduled for 2026-05-15."
+    notes: "Distractor: both are April/May infra-adjacent launch dates for unrelated projects."
+
+  # ================================================================================
+  # Unanswerable (8) — the answer is genuinely absent from the corpus. Correct
+  # behaviour is explicit abstention, not a fabricated answer.
+  # ================================================================================
+  - id: q.head-of-hr
+    question: "Who is Lumen Labs' Head of HR?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Not stated anywhere in the corpus — no Head of HR role or person is mentioned."
+
+  - id: q.tariq-previous-employer
+    question: "Where did Tariq Hassan work before joining Lumen Labs?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Not stated anywhere in the corpus."
+
+  - id: q.2024-revenue
+    question: "What was Lumen Labs' revenue in 2024?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Not stated — the only revenue figure in the corpus is the 2026-02-01 board update on 2026 ARR."
+
+  - id: q.acme-corp-contract
+    question: "What is the status of Lumen Labs' contract with Acme Corp?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Acme Corp is never mentioned in the corpus."
+
+  - id: q.ceo-favorite-hobby
+    question: "What is Daniel Oyelaran's favorite hobby outside of work?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Not stated anywhere in the corpus."
+
+  - id: q.offsite-budget
+    question: "What is the total budget approved for the Lisbon offsite?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Not stated — the offsite's dates and organizer are known, but no budget figure is mentioned."
+
+  - id: q.helios-competitor-response
+    question: "How did Lumen Labs' competitors respond to the Helios launch?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: "Not stated anywhere in the corpus."
+
+  - id: q.headcount-start-of-2025
+    question: "What was Lumen Labs' employee headcount at the start of 2025?"
+    category: unanswerable
+    requiredFacts: []
+    requiredSources: []
+    minHops: 0
+    expectedAbstention: true
+    referenceAnswer: >
+      Not stated — the only headcount figure in the corpus is the board's 2026
+      approval of growth to 35 by end of 2026, which is a target, not a 2025 count.

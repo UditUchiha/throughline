@@ -1,0 +1,236 @@
+# The answer key for the "Lumen Labs" corpus (throughline PLAN.md §6).
+#
+# Every fact here MUST appear, and appear correctly, in every document listed in its
+# `expressedIn`. scripts/corpus-generate.ts verifies this after generation (embedding
+# similarity between the fact statement and the generated document). `supersedes`
+# marks a fact that replaces an earlier one — the earlier fact stays in the corpus
+# (so naive retrieval can still find it) but is no longer the correct answer. This is
+# what makes recall@k and "is the answer current" deterministic instead of an LLM
+# judgment call — see corpus/questions.yaml and PLAN.md §6/§7.
+#
+# docIds referenced in `expressedIn` are defined in documents.yaml; keep the two files
+# in sync (scripts/corpus-generate.ts validates every expressedIn id resolves to a
+# real document at generation time).
+
+facts:
+  # ---- Storyline 1: Helios (Session Replay v2) launch delay ------------------------
+  - id: fact.helios-delay-cause
+    statement: >
+      The Helios launch slipped from 2026-03-10 to 2026-04-21 because the billing
+      migration failed load testing at 4x expected volume.
+    expressedIn: [chat.eng-helios.2026-02-18]
+    supersedes: null
+
+  - id: fact.helios-owner
+    statement: >
+      Amara Chen owns the billing migration workstream that is blocking the Helios launch.
+    expressedIn: [chat.eng-helios.2026-02-18]
+    supersedes: null
+
+  - id: fact.helios-delay-signoff
+    statement: >
+      Priya Raman approved the revised Helios launch date of 2026-04-21 on 2026-02-20.
+    expressedIn: [mail.thread-helios-date-change.msg-3]
+    supersedes: null
+
+  - id: fact.helios-root-cause-detail
+    statement: >
+      The Helios load-test failure was traced to a connection-pool exhaustion bug in
+      the new Stripe usage-metering service under concurrent writes.
+    expressedIn: [notes.helios-loadtest-postmortem]
+    supersedes: null
+
+  - id: fact.helios-launch-final
+    statement: >
+      Helios actually shipped on 2026-04-22, one day after the approved 2026-04-21
+      date, due to a last-minute TLS certificate renewal issue in the staging environment.
+    expressedIn: [mail.thread-helios-launch-day.msg-1]
+    supersedes: null
+
+  # ---- Storyline 2: Pricing model change -------------------------------------------
+  - id: fact.pricing-v1-decision
+    statement: >
+      Lumen Labs launched Pulse with seat-based pricing at $49 per seat per month in 2025.
+    expressedIn: [notes.pricing-v1-launch-doc]
+    supersedes: null
+
+  - id: fact.pricing-v2-decision
+    statement: >
+      Usage-based pricing (billed per session recorded) was approved on 2026-01-14 to
+      replace seat-based pricing, effective 2026-04-01.
+    expressedIn: [notes.pricing-v2-decision-record]
+    supersedes: fact.pricing-v1-decision
+
+  - id: fact.pricing-v2-rationale
+    statement: >
+      The move to usage-based pricing was driven by enterprise prospects, including
+      Northwind Retail, refusing seat-based contracts during procurement.
+    expressedIn: [mail.thread-pricing-change-rationale.msg-1]
+    supersedes: null
+
+  - id: fact.pricing-v2-champion
+    statement: >
+      Claire Jensen pushed for the pricing model change after losing the Northwind
+      Retail deal twice under the seat-based model.
+    expressedIn: [chat.sales.2026-01-10]
+    supersedes: null
+
+  # ---- Storyline 3: Northwind Retail escalation ------------------------------------
+  - id: fact.northwind-bug
+    statement: >
+      Northwind Retail reported that session replays were missing for their mobile
+      checkout flow starting 2026-02-03.
+    expressedIn: [mail.thread-northwind-missing-replays.msg-1]
+    supersedes: null
+
+  - id: fact.northwind-root-cause
+    statement: >
+      Northwind Retail's missing session replays were caused by an ad-blocker
+      false-positive flagging Pulse's mobile SDK script as a tracker.
+    expressedIn: [notes.northwind-support-postmortem]
+    supersedes: null
+
+  - id: fact.northwind-fix
+    statement: >
+      Grace Oduya shipped a fix on 2026-02-10 that renamed the Pulse mobile SDK
+      script bundle to avoid ad-blocker filter lists.
+    expressedIn: [chat.support-eng.2026-02-10]
+    supersedes: null
+
+  - id: fact.northwind-outcome
+    statement: >
+      Northwind Retail renewed their annual contract on 2026-03-01 after the fix,
+      under the new usage-based pricing tier.
+    expressedIn: [mail.thread-northwind-renewal.msg-1]
+    supersedes: null
+
+  # ---- Storyline 4: Infra migration (Postgres → Aurora) ----------------------------
+  - id: fact.infra-migration-decision
+    statement: >
+      The team decided at the 2026-01-20 infra review to migrate the primary
+      Postgres database from self-hosted to a managed provider (Aurora), to
+      reduce on-call burden.
+    expressedIn: [notes.infra-review-2026-01-20]
+    supersedes: null
+
+  - id: fact.infra-migration-owner
+    statement: >
+      Ines Dubois and Tariq Hassan are jointly responsible for executing the
+      Aurora migration.
+    expressedIn: [chat.eng-infra.2026-01-22]
+    supersedes: null
+
+  - id: fact.infra-migration-date
+    statement: >
+      The Aurora cutover is scheduled for 2026-05-15, with a 48-hour rollback window.
+    expressedIn: [mail.thread-aurora-cutover-notice.msg-1]
+    supersedes: null
+
+  - id: fact.infra-migration-risk
+    statement: >
+      The main identified risk for the Aurora migration is replication lag under
+      the increased session-write volume expected after the Helios launch.
+    expressedIn: [notes.aurora-migration-risk-assessment]
+    supersedes: null
+
+  # ---- Storyline 5: Hiring — Tariq Hassan (SRE) ------------------------------------
+  - id: fact.tariq-hire-approval
+    statement: >
+      Ravi Anand approved hiring Tariq Hassan as Senior SRE on 2025-12-10.
+    expressedIn: [mail.thread-tariq-hire-approval.msg-1]
+    supersedes: null
+
+  - id: fact.tariq-start-date
+    statement: >
+      Tariq Hassan's start date at Lumen Labs was 2026-01-05.
+    expressedIn: [chat.general.2026-01-05]
+    supersedes: null
+
+  - id: fact.tariq-first-project
+    statement: >
+      Tariq Hassan's first project assignment was the Aurora migration, alongside
+      Ines Dubois.
+    expressedIn: [notes.tariq-onboarding-plan]
+    supersedes: null
+
+  # ---- Storyline 6: Security findings (deliberate distractor pair) -----------------
+  - id: fact.security-finding
+    statement: >
+      An external researcher reported a stored XSS vulnerability in the Pulse
+      dashboard's custom-annotation feature on 2026-02-25.
+    expressedIn: [mail.thread-security-disclosure-xss.msg-1]
+    supersedes: null
+
+  - id: fact.security-fix-owner
+    statement: >
+      Marcus Webb patched the stored XSS vulnerability and shipped the fix on 2026-02-27.
+    expressedIn: [chat.security.2026-02-27]
+    supersedes: null
+
+  - id: fact.security-bounty-paid
+    statement: >
+      The researcher who reported the stored XSS vulnerability was paid a $1,500
+      bounty, approved by Ravi Anand.
+    expressedIn: [notes.security-incident-log]
+    supersedes: null
+
+  - id: fact.security-finding-2
+    statement: >
+      A separate, earlier finding — an open-redirect issue in the OAuth login flow —
+      was reported on 2025-11-12 and fixed by Ben Holt. No bounty was paid because
+      the issue was out of the bounty program's scope at the time.
+    expressedIn: [mail.thread-security-disclosure-openredirect.msg-1]
+    supersedes: null
+
+  # ---- Storyline 7: API versioning and deprecation ---------------------------------
+  - id: fact.api-v3-launch
+    statement: >
+      Pulse API v3 was released on 2026-03-01, adding webhook-based event delivery.
+    expressedIn: [notes.api-v3-changelog]
+    supersedes: null
+
+  - id: fact.api-v2-deprecation-date
+    statement: >
+      Pulse API v2 was originally scheduled for deprecation on 2026-06-01.
+    expressedIn: [mail.thread-api-v2-deprecation-notice.msg-1]
+    supersedes: null
+
+  - id: fact.api-v2-deprecation-extended
+    statement: >
+      The Pulse API v2 deprecation date was pushed from 2026-06-01 to 2026-09-01
+      after several large customers requested more migration time.
+    expressedIn: [chat.product.2026-04-10]
+    supersedes: fact.api-v2-deprecation-date
+
+  - id: fact.api-v2-deprecation-owner
+    statement: >
+      Noah Fischer owns communicating the Pulse API v2 deprecation timeline to customers.
+    expressedIn: [notes.api-v2-deprecation-comms-plan]
+    supersedes: null
+
+  # ---- Storyline 8: Team offsite (mostly noise, 2 retrievable facts) ---------------
+  - id: fact.offsite-date
+    statement: >
+      The Lumen Labs team offsite is scheduled for 2026-06-18 through 2026-06-20 in Lisbon.
+    expressedIn: [chat.general.2026-05-01]
+    supersedes: null
+
+  - id: fact.offsite-organizer
+    statement: >
+      Yuki Tanaka is organizing the logistics for the Lisbon team offsite.
+    expressedIn: [mail.thread-offsite-logistics.msg-1]
+    supersedes: null
+
+  # ---- Storyline 9: Board update ---------------------------------------------------
+  - id: fact.board-update-arr
+    statement: >
+      Lumen Labs reported $2.1M ARR at the 2026-02-01 board meeting, up from $1.4M
+      the prior quarter.
+    expressedIn: [notes.board-meeting-2026-02-01-summary]
+    supersedes: null
+
+  - id: fact.board-update-headcount
+    statement: >
+      The board approved a headcount increase to 35 employees by the end of 2026.
+    expressedIn: [mail.thread-board-update-exec-summary.msg-1]
+    supersedes: null

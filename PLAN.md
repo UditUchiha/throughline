@@ -7,7 +7,48 @@
 **Audience:** an AI coding agent (or the repo owner) executing this plan with no prior context
 on the repository. Everything needed to start is in this document.
 
-**Status:** authored 2026-08-04. Nothing in this plan has been implemented yet.
+---
+
+## Current status — read this first
+
+*Authored 2026-08-04. Status last updated 2026-08-05.*
+
+**Repo:** https://github.com/UditUchiha/throughline (public, one clean commit, no client data
+in history). Local dev on Windows, pnpm, Node 22.
+
+| Milestone | State | Notes |
+|---|---|---|
+| **M0.1–M0.4** | ✅ Done | Client code/data deleted; renamed to `throughline`; MIT licensed; `git init` + first commit pushed. Retrieval-threshold study preserved at `docs/retrieval-threshold-study.md` (aggregate numbers only, no customer text). |
+| **M0.5 — corpus** | 🟡 **In progress — this is the next task** | Ledger fully authored (`corpus/ledger/{entities,facts,documents}.yaml`), 56 questions authored (`corpus/questions.yaml`), generator written (`scripts/corpus-generate.ts`) and dry-run validated clean over all 168 documents. **The documents themselves have NOT been generated yet** — blocked only on `GEMINI_API_KEY` in `.env`. Run `pnpm corpus:generate`. |
+| **M0.6 — rewire retrieval** | ⬜ Not started | Detailed below. Depends on M0.5 output existing. |
+| **M0.7 — README v1** | ✅ Done | Honest about current state; points here for the roadmap. |
+| **M1–M6** | ⬜ Not started | Unchanged from the plan below. |
+
+**Decisions locked since authoring** (do not re-litigate — see §11):
+- §11.1 Project name: `throughline`.
+- §11.4 Default embedding provider: **local in-process** (`fastembed` / `bge-small-en-v1.5`,
+  384d), *not* Gemini. This is what keeps the Docker build in §9 offline and keyless.
+- §11.2 Corpus setting: accepted as "Lumen Labs" — see §6 and the anti-goal in §2 about
+  swapping it for a public dataset.
+
+**Immediate next steps, in order:**
+1. Add `GEMINI_API_KEY` to `.env` (one-off, authoring-only — the running app never needs it).
+2. `pnpm corpus:generate` — writes `corpus/generated/{mail,chat,notes}/`, then reports any
+   document where a tracked fact's exact date/name/amount failed to survive generation.
+   Review anything flagged before committing.
+3. M0.6 below (frontmatter → `source`/`docId` metadata, `sourceFilter` on retrieval).
+4. Commit the generated corpus. M0 is then closed and M1 begins.
+
+**Known deviations from this plan as written** (deliberate, keep them):
+- `scripts/corpus-generate.ts` verifies facts survived generation by **literal token
+  matching** (ISO dates, dollar amounts, `4x`-style multipliers, known entity names extracted
+  from each fact statement) rather than §6's suggested embedding-similarity check. Rationale
+  is in the script's header comment: an embedding threshold is a fuzzy topical-relevance
+  proxy needing an arbitrary cutoff, whereas "did the exact date survive" is the actual
+  failure mode and is fully deterministic with no embedding calls.
+- The corpus is 168 documents (81 mail / 47 chat channel-days / 40 notes) rather than §6's
+  literal counts. Chat documents are channel-*days* containing 3–7 messages each, so total
+  message volume lands in the intended range.
 
 ---
 
@@ -86,6 +127,8 @@ without explicit approval from the repo owner.
 | **Hand-rolled agent orchestration loop** | The earlier plan argued against LangGraph to avoid a dependency. Rejected: LangGraph.js provides the checkpointer (which is the short-term-memory persistence layer), streaming graph events (which is how the UI renders live progress), and first-class LangSmith tracing. Rebuilding those is thousands of lines, worse, and costs the recognizable ecosystem vocabulary. |
 | **A separate "Guardrails + eval CI" repository** | Folded into this project as M6. A guardrail system evaluated against synthetic examples is a toy; evaluated against a real agentic system with real failure modes it is credible. See §8. |
 | **Zammad ingestion pipeline** | Removed in M0. It is client data tooling. The code survives in the sibling `client-repo` repo if ever needed. |
+| **Replacing the synthetic corpus with a public dataset** (Enron, Kaggle, a scraped corpus) | Tempting because it feels "more real," but it destroys the eval suite. The expensive part of an eval set is the *answer key*, not the documents: a public dump gives you text with no "these 2 facts, in these 2 documents, are required to answer this" annotation. You would either hand-label it (weeks) or have an LLM label it — and then the eval is graded by the same model that wrote it, which measures nothing. Ledger-first synthesis is what purpose-built multi-hop benchmarks do when no annotated corpus exists for the domain (cf. LoCoMo, generated from a persona/event graph then verified; HotpotQA/MuSiQue's contribution is precisely the human-annotated supporting facts). **The facts here are human-authored; only the prose is generated; the generator verifies the facts survived.** Keep it. |
+| **Gating the demo behind user-uploaded data** | See §12.1 — bring-your-own-data is a deferred post-M2 nice-to-have, not the answer to "what does a visitor ask." One-click example questions from `corpus/questions.yaml` solve that at zero cost. |
 
 ---
 
@@ -517,8 +560,14 @@ Enable CORS in `src/main.ts` for the UI origin.
 `ui/` — Next.js (App Router), Tailwind, deployed separately to Vercel. Consumes the SSE
 stream and renders panels as events arrive:
 
-1. **Question box** + example questions from `corpus/questions.yaml` (one click to try —
-   critical for a visitor who does not know what to ask).
+1. **Question box** + example questions from `corpus/questions.yaml` (one click to try).
+   **Not optional, and not cosmetic** — this is the entire answer to "a visitor won't know
+   what to ask," and it is why bring-your-own-data upload is *not* needed to make the demo
+   usable (§12.1). Surface a spread across categories, and label them by what they
+   demonstrate — e.g. a `multi-hop` one as "needs 2 sources", a `temporal` one as "a fact
+   that changed", an `unanswerable` one as "should refuse to answer". A visitor clicking
+   the last one and watching the system correctly decline is more convincing than any
+   successful answer.
 2. **Plan panel** — sub-questions appearing as `plan_created` lands, each showing assigned
    tool and live status.
 3. **Tool timeline** — horizontal bars showing parallel execution and per-call latency. This
@@ -954,6 +1003,33 @@ already true and needs no public repo:
 **Skills line — currently contains no AI/ML entries at all.** Add after M1:
 `RAG, vector search, embeddings, LangGraph, MCP, LangSmith, Ollama, sqlite-vec, LLM evals`.
 
+### Interview framing
+
+Recorded here because it drives design decisions elsewhere in this document (notably §6's
+ledger-first corpus and §2's anti-goal against swapping it for a public dataset). Both
+questions below get asked; the second one is where the project either reads as serious or
+reads as a toy.
+
+**"Why did you build this?"**
+
+> I work across Gmail, Slack, Obsidian and a helpdesk. Answering something like "why did the
+> launch slip and who signed off on the new date" means opening three tools and stitching it
+> together myself — the answer isn't in any single document, so ordinary RAG can't do it. I
+> built an agent that plans the decomposition, fans out across sources, and cites what it used.
+
+**"Isn't your test data fake?"**
+
+> I couldn't publish my actual work data, and no public benchmark exists for multi-hop QA over
+> mixed email/chat/notes with source attribution. So I authored a ground-truth fact ledger
+> first and generated the corpus from it — the same approach LoCoMo uses, and structurally
+> what HotpotQA and MuSiQue contribute (the value in those is the human-annotated supporting
+> facts, not the text). The facts are hand-written; only the prose is generated; the generator
+> verifies each fact's exact dates and names survived generation. That answer key is what
+> makes recall@k and citation validity deterministic checks instead of LLM-judged ones.
+
+The second answer is the one that signals seniority — it is a claim about *eval design*,
+which is the part most portfolio RAG projects skip entirely.
+
 ---
 
 ## 11. Open decisions
@@ -982,7 +1058,44 @@ Decided items are marked ✅. Remaining items resolve before or during M0, with 
 
 ---
 
-## 12. Sequencing summary
+## 12. Deferred backlog
+
+Not scheduled. Do not pull any of these forward ahead of M1–M6 without the owner asking.
+
+### 12.1 Bring-your-own-data upload
+
+Let a visitor upload `.md` / `.txt` / `.pdf` / `.docx`, index it into a separate namespace,
+and ask questions against it.
+
+**Deferred to post-M2**, for three reasons:
+- The demo problem it appears to solve ("a visitor won't know what to ask") is already
+  solved for free by one-click example questions in M2.
+- Re-embedding uploads costs quota and needs writable storage on an otherwise ephemeral
+  container — real friction against §9's zero-cost constraint.
+- M5's MCP connectors are the stronger version of the same story. "Connects to live Gmail,
+  Slack, and Obsidian" beats "you can upload a PDF."
+
+**Clearing up a misconception that will otherwise come up:** uploaded data not being covered
+by the eval suite is *not* a problem and is not a reason to avoid building this. Evals
+measure the *system* against a fixed benchmark corpus; user data is *usage*. These are
+different things and always are — nobody re-runs a benchmark against a user's private
+documents. If built, uploads simply index into their own namespace and produce no eval
+numbers, which is correct.
+
+### 12.2 Hand-editing fact-bearing corpus documents
+
+LLM-generated prose is more uniform and blander than real workplace writing, which makes
+retrieval slightly easier than reality. The noise documents and per-document `brief`s in
+`corpus/ledger/documents.yaml` mitigate this but do not eliminate it.
+
+If it becomes a credibility issue, the fix is hand-editing the ~30 fact-bearing documents for
+voice and mess — **not** swapping the corpus for a public dataset (§2). The ledger stays the
+answer key either way; only the surface prose changes, and the generator's verification pass
+will confirm the facts survived the edit.
+
+---
+
+## 13. Sequencing summary
 
 ```
 M0  Declient + corpus        1–2 days   ← linkable repo exists

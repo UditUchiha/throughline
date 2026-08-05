@@ -1,0 +1,117 @@
+# Entities for the "Lumen Labs" synthetic corpus (throughline PLAN.md §6).
+# Entirely fictional — no real company, product, or person. Used by facts.yaml
+# (which references these ids) and by scripts/corpus-generate.ts (which uses
+# name/role to keep generated prose consistent).
+
+company:
+  id: lumen-labs
+  name: Lumen Labs
+  description: >
+    A ~30-person startup building Pulse, a developer analytics product
+    (session replay, error tracking, and performance monitoring for web apps).
+
+product:
+  id: pulse
+  name: Pulse
+  description: Session replay + error tracking + performance analytics platform.
+
+people:
+  - id: person.ravi
+    name: Ravi Anand
+    role: CTO
+  - id: person.daniel
+    name: Daniel Oyelaran
+    role: CEO
+  - id: person.priya
+    name: Priya Raman
+    role: VP Product
+  - id: person.sofia
+    name: Sofia Marek
+    role: Head of Support & Customer Success
+  - id: person.amara
+    name: Amara Chen
+    role: Staff Engineer, Billing & Infra
+  - id: person.ben
+    name: Ben Holt
+    role: Senior Backend Engineer
+  - id: person.lena
+    name: Lena Vogel
+    role: Frontend Lead
+  - id: person.tariq
+    name: Tariq Hassan
+    role: Senior SRE
+  - id: person.ines
+    name: Ines Dubois
+    role: Engineering Manager, Platform
+  - id: person.marcus
+    name: Marcus Webb
+    role: Security Engineer
+  - id: person.noah
+    name: Noah Fischer
+    role: Product Manager, Session Replay
+  - id: person.yuki
+    name: Yuki Tanaka
+    role: Product Designer
+  - id: person.grace
+    name: Grace Oduya
+    role: Senior Support Engineer
+  - id: person.devon
+    name: Devon Pierce
+    role: Customer Success Manager
+  - id: person.claire
+    name: Claire Jensen
+    role: Head of Sales
+  - id: person.omar
+    name: Omar Saleh
+    role: Marketing Lead
+
+customers:
+  - id: customer.northwind
+    name: Northwind Retail
+    description: Mid-market ecommerce customer; central to the escalation storyline.
+  - id: customer.fenwick
+    name: Fenwick & Cole
+    description: Enterprise customer, mentioned only in passing (renewal noise).
+  - id: customer.brightpath
+    name: BrightPath Logistics
+    description: Prospect, mentioned only in passing (distractor noise).
+
+projects:
+  - id: project.helios
+    name: Helios
+    description: Internal codename for Session Replay v2.
+  - id: project.billing-migration
+    name: Billing migration
+    description: Migration to Stripe usage-based metering, blocking Helios.
+  - id: project.pricing-v1
+    name: Seat-based pricing
+    description: Lumen Labs' original pricing model ($49/seat/month). Superseded.
+  - id: project.pricing-v2
+    name: Usage-based pricing
+    description: Pricing billed per session recorded; replaced seat-based pricing.
+  - id: project.api-v2
+    name: Pulse API v2
+    description: Prior API version, being deprecated.
+  - id: project.api-v3
+    name: Pulse API v3
+    description: Current API version (webhook-based event delivery), launched 2026-03-01.
+  - id: project.aurora-migration
+    name: Aurora migration
+    description: Migration of the primary Postgres database to a managed provider (Aurora).
+
+channels:
+  - eng-helios
+  - eng-infra
+  - security
+  - product
+  - support-eng
+  - sales
+  - general
+  - random
+  - exec
+  - design
+  - onboarding
+  - incidents
+  - api-team
+  - offsite-planning
+  - board-prep
