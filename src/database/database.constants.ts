@@ -1,0 +1,1 @@
+export const SQLITE_CONNECTION = Symbol('SQLITE_CONNECTION');

@@ -1,0 +1,27 @@
+node_modules/
+dist/
+coverage/
+
+.env
+.env.local
+.env*.local
+
+database/*.db
+database/*.db-journal
+database/*.db-wal
+database/*.db-shm
+
+# Local Claude Code tool state (scheduled tasks lock, etc.) — machine-local, not for committing.
+.claude/
+.codegraph
+
+# Local embedding model weight cache (fastembed/transformers.js) — regenerable, can be large.
+corpus/generated/.cache/
+.cache/
+
+# UI (added in M2)
+ui/.next/
+ui/node_modules/
+
+*.log
+.DS_Store

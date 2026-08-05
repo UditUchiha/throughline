@@ -1,0 +1,16 @@
+# Local Mac dev runs Ollama natively (Metal GPU + full unified memory) instead of this
+# service — Docker on Mac has no GPU passthrough and caps its VM's RAM. This compose
+# file is for Linux dev/CI environments where that concern doesn't apply, and for anyone
+# who wants the whole stack (app + Ollama) running in containers.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: throughline-ollama
+    ports:
+      - '11434:11434'
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
