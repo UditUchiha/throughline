@@ -11,8 +11,12 @@ database/*.db-journal
 database/*.db-wal
 database/*.db-shm
 
-# Local Claude Code tool state (scheduled tasks lock, etc.) — machine-local, not for committing.
-.claude/
+# Claude Code: the checked-in half of `.claude/` (settings.json, agents/, skills/) is part of
+# the repo — a fresh clone gets the same hooks, reviewers, and slash commands. Only
+# machine-local state is ignored: personal setting overrides and tool lock/scratch files.
+.claude/settings.local.json
+.claude/*.lock
+.claude/scheduled_tasks.lock
 .codegraph
 
 # Local embedding model weight cache (fastembed/transformers.js) — regenerable, can be large.
