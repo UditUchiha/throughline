@@ -55,6 +55,8 @@ export class AppConfigService {
   }
 
   get retrievalDistanceThreshold(): number {
-    return this.configService.get('RETRIEVAL_DISTANCE_THRESHOLD', { infer: true });
+    return this.configService.get('RETRIEVAL_DISTANCE_THRESHOLD', {
+      infer: true,
+    });
   }
 }

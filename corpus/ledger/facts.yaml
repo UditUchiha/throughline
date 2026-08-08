@@ -174,12 +174,22 @@ facts:
     expressedIn: [notes.security-incident-log]
     supersedes: null
 
+  # Split into report + resolution deliberately: the reporting email cannot state who
+  # eventually fixed the issue or whether a bounty was paid, since neither had happened
+  # when it was written. Bundling all three into one fact assigned to the report made the
+  # answer key unsatisfiable — the generator's verification pass caught it.
   - id: fact.security-finding-2
     statement: >
       A separate, earlier finding — an open-redirect issue in the OAuth login flow —
-      was reported on 2025-11-12 and fixed by Ben Holt. No bounty was paid because
-      the issue was out of the bounty program's scope at the time.
+      was reported on 2025-11-12.
     expressedIn: [mail.thread-security-disclosure-openredirect.msg-1]
+    supersedes: null
+
+  - id: fact.security-finding-2-resolution
+    statement: >
+      The open-redirect issue in the OAuth login flow was fixed by Ben Holt. No bounty
+      was paid because the issue was out of the bounty program's scope at the time.
+    expressedIn: [mail.thread-security-disclosure-openredirect.msg-2]
     supersedes: null
 
   # ---- Storyline 7: API versioning and deprecation ---------------------------------

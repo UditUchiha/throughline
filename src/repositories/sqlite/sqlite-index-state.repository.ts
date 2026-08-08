@@ -11,7 +11,11 @@ interface IndexStateRow {
 }
 
 function toIndexState(row: IndexStateRow): IndexState {
-  return { path: row.path, lastIndexed: row.last_indexed, checksum: row.checksum };
+  return {
+    path: row.path,
+    lastIndexed: row.last_indexed,
+    checksum: row.checksum,
+  };
 }
 
 @Injectable()

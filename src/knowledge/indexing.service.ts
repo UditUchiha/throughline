@@ -28,10 +28,13 @@ export class IndexingService {
   constructor(
     private readonly config: AppConfigService,
     private readonly embeddingsService: OllamaEmbeddingsService,
-    @Inject(ARTICLE_REPOSITORY) private readonly articleRepository: ArticleRepository,
+    @Inject(ARTICLE_REPOSITORY)
+    private readonly articleRepository: ArticleRepository,
     @Inject(CHUNK_REPOSITORY) private readonly chunkRepository: ChunkRepository,
-    @Inject(EMBEDDING_REPOSITORY) private readonly embeddingRepository: EmbeddingRepository,
-    @Inject(INDEX_STATE_REPOSITORY) private readonly indexStateRepository: IndexStateRepository,
+    @Inject(EMBEDDING_REPOSITORY)
+    private readonly embeddingRepository: EmbeddingRepository,
+    @Inject(INDEX_STATE_REPOSITORY)
+    private readonly indexStateRepository: IndexStateRepository,
   ) {}
 
   // A reindex mutates articles/chunks/embeddings across many statements with no
@@ -49,7 +52,12 @@ export class IndexingService {
 
   private async doReindexAll(): Promise<ReindexSummary> {
     const articles = loadMarkdownArticles(this.config.knowledgePath);
-    const summary: ReindexSummary = { indexed: [], skipped: [], removed: [], totalChunks: 0 };
+    const summary: ReindexSummary = {
+      indexed: [],
+      skipped: [],
+      removed: [],
+      totalChunks: 0,
+    };
 
     await this.removeDeletedArticles(articles, summary);
 
@@ -78,7 +86,12 @@ export class IndexingService {
       const texts = chunkText(loaded.content, this.config.chunkSize, this.config.chunkOverlap);
       const chunks = await this.chunkRepository.insertMany(
         article.id,
-        texts.map((text, i) => ({ chunkIndex: i, text })),
+        texts.map((text, i) => ({
+          chunkIndex: i,
+          text,
+          source: loaded.source ?? null,
+          docId: loaded.docId ?? null,
+        })),
       );
 
       const embeddings = await this.embeddingsService.embed(chunks.map((c) => c.text));

@@ -9,10 +9,19 @@ interface ChunkRow {
   article_id: number;
   chunk_index: number;
   text: string;
+  source: string | null;
+  doc_id: string | null;
 }
 
 function toChunk(row: ChunkRow): Chunk {
-  return { id: row.id, articleId: row.article_id, chunkIndex: row.chunk_index, text: row.text };
+  return {
+    id: row.id,
+    articleId: row.article_id,
+    chunkIndex: row.chunk_index,
+    text: row.text,
+    source: row.source as Chunk['source'],
+    docId: row.doc_id,
+  };
 }
 
 @Injectable()
@@ -21,15 +30,22 @@ export class SqliteChunkRepository implements ChunkRepository {
 
   async insertMany(
     articleId: number,
-    chunks: { chunkIndex: number; text: string }[],
+    chunks: { chunkIndex: number; text: string; source: string | null; docId: string | null }[],
   ): Promise<Chunk[]> {
-    const insert = this.db.prepare<[number, number, string], ChunkRow>(
-      `INSERT INTO chunks (article_id, chunk_index, text) VALUES (?, ?, ?) RETURNING *`,
+    const insert = this.db.prepare<
+      [number, number, string, string | null, string | null],
+      ChunkRow
+    >(
+      `INSERT INTO chunks (article_id, chunk_index, text, source, doc_id) VALUES (?, ?, ?, ?, ?) RETURNING *`,
     );
 
-    const insertAll = this.db.transaction((rows: { chunkIndex: number; text: string }[]) => {
-      return rows.map((c) => insert.get(articleId, c.chunkIndex, c.text)!);
-    });
+    const insertAll = this.db.transaction(
+      (
+        rows: { chunkIndex: number; text: string; source: string | null; docId: string | null }[],
+      ) => {
+        return rows.map((c) => insert.get(articleId, c.chunkIndex, c.text, c.source, c.docId)!);
+      },
+    );
 
     return insertAll(chunks).map(toChunk);
   }

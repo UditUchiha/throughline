@@ -19,10 +19,21 @@ in history). Local dev on Windows, pnpm, Node 22.
 | Milestone | State | Notes |
 |---|---|---|
 | **M0.1–M0.4** | ✅ Done | Client code/data deleted; renamed to `throughline`; MIT licensed; `git init` + first commit pushed. Retrieval-threshold study preserved at `docs/retrieval-threshold-study.md` (aggregate numbers only, no customer text). |
-| **M0.5 — corpus** | 🟡 **In progress — this is the next task** | Ledger fully authored (`corpus/ledger/{entities,facts,documents}.yaml`), 56 questions authored (`corpus/questions.yaml`), generator written (`scripts/corpus-generate.ts`) and dry-run validated clean over all 168 documents. **The documents themselves have NOT been generated yet** — blocked only on `GEMINI_API_KEY` in `.env`. Run `pnpm corpus:generate`. |
-| **M0.6 — rewire retrieval** | ⬜ Not started | Detailed below. Depends on M0.5 output existing. |
+| **M0.5 — corpus** | ✅ Done | 169 documents generated and committed (82 mail / 47 chat / 40 notes). All fact-bearing documents pass verification — re-check anytime with `pnpm corpus:generate --verify-only` (reads the corpus on disk, no model calls, seconds). |
+| **M0.6 — rewire retrieval** | ✅ Done | `source`/`doc_id` threaded through migrations → `ChunkRepository` → `RetrievalService` → `RetrievedChunk`; frontmatter parsed via `gray-matter`; `sourceFilter` on `EmbeddingRepository.search`; `KNOWLEDGE_PATH` → `./corpus/generated`. |
 | **M0.7 — README v1** | ✅ Done | Honest about current state; points here for the roadmap. |
-| **M1–M6** | ⬜ Not started | Unchanged from the plan below. |
+| **M1–M6** | ⬜ Not started | **M1 is the next task.** Unchanged from the plan below. |
+
+> [!WARNING]
+> **The embedding/retrieval path has not been proven end-to-end.** A full
+> `POST /knowledge/reindex` over the corpus requires a local Ollama on `:11434`
+> (`ollama pull bge-m3`), which was unavailable when M0.6 landed. What *was* verified
+> directly: the migration's legacy-schema `ALTER` path and idempotent re-run, and the
+> markdown loader parsing 169/169 documents with `source` + `docId` populated and no
+> frontmatter leaking into indexed text. **Before building M1 on top of this, start
+> Ollama, run a reindex, and spot-check several `corpus/questions.yaml` entries through
+> `GET /knowledge/search?q=...`** — particularly one with a `sourceFilter`, since that
+> code path has never executed against real vectors.
 
 **Decisions locked since authoring** (do not re-litigate — see §11):
 - §11.1 Project name: `throughline`.
@@ -31,14 +42,6 @@ in history). Local dev on Windows, pnpm, Node 22.
 - §11.2 Corpus setting: accepted as "Lumen Labs" — see §6 and the anti-goal in §2 about
   swapping it for a public dataset.
 
-**Immediate next steps, in order:**
-1. Add `GEMINI_API_KEY` to `.env` (one-off, authoring-only — the running app never needs it).
-2. `pnpm corpus:generate` — writes `corpus/generated/{mail,chat,notes}/`, then reports any
-   document where a tracked fact's exact date/name/amount failed to survive generation.
-   Review anything flagged before committing.
-3. M0.6 below (frontmatter → `source`/`docId` metadata, `sourceFilter` on retrieval).
-4. Commit the generated corpus. M0 is then closed and M1 begins.
-
 **Known deviations from this plan as written** (deliberate, keep them):
 - `scripts/corpus-generate.ts` verifies facts survived generation by **literal token
   matching** (ISO dates, dollar amounts, `4x`-style multipliers, known entity names extracted
@@ -46,9 +49,18 @@ in history). Local dev on Windows, pnpm, Node 22.
   is in the script's header comment: an embedding threshold is a fuzzy topical-relevance
   proxy needing an arbitrary cutoff, whereas "did the exact date survive" is the actual
   failure mode and is fully deterministic with no embedding calls.
-- The corpus is 168 documents (81 mail / 47 chat channel-days / 40 notes) rather than §6's
+- The corpus is 169 documents (82 mail / 47 chat channel-days / 40 notes) rather than §6's
   literal counts. Chat documents are channel-*days* containing 3–7 messages each, so total
   message volume lands in the intended range.
+- `fact.security-finding-2` was **split** into a report fact and a
+  `fact.security-finding-2-resolution` fact during M0.5. The original bundled "reported on
+  2025-11-12", "fixed by Ben Holt", and "no bounty was paid" into one statement assigned
+  solely to the researcher's disclosure email — which cannot state who would later fix it or
+  what the bounty decision would be, because neither had happened when it was written. The
+  answer key was unsatisfiable as authored; the verification pass caught it. A follow-up
+  document (`mail.thread-security-disclosure-openredirect.msg-2`) now carries the resolution.
+  **This is the pattern to follow if verification flags a fact: check whether the assigned
+  document could plausibly express it at all before assuming the generator misbehaved.**
 
 ---
 

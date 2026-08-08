@@ -453,8 +453,9 @@ questions:
       $1,500 bounty paid. A good answer should note the disambiguation rather
       than silently picking one.
     notes: >
-      Distractor: fact.security-finding-2 (open-redirect, 2025-11-12, fixed by
-      Ben Holt, no bounty) is a separate, earlier, and textually similar finding.
+      Distractor: fact.security-finding-2 / fact.security-finding-2-resolution
+      (open-redirect, 2025-11-12, fixed by Ben Holt, no bounty) is a separate,
+      earlier, and textually similar finding.
 
   - id: q.bounty-payment-lookup
     question: "Was a bug bounty paid for a Lumen Labs security finding, and if so, how much?"
@@ -466,7 +467,7 @@ questions:
     referenceAnswer: >
       Yes, $1,500 for the stored XSS finding. (A separate, earlier open-redirect
       finding did not receive a bounty — it was out of program scope at the time.)
-    notes: "Distractor: fact.security-finding-2 describes a no-bounty case for a different, earlier finding."
+    notes: "Distractor: fact.security-finding-2-resolution describes a no-bounty case for a different, earlier finding."
 
   - id: q.helios-delay-cause-authoritative-source
     question: "What exactly caused the Helios delay, according to the team's internal discussion?"

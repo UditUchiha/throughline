@@ -173,6 +173,18 @@ mail:
       OAuth login flow, dated 2025-11-12 — an earlier, separate finding from the
       2026-02-25 XSS report.
 
+  - docId: mail.thread-security-disclosure-openredirect.msg-2
+    threadId: thread-security-disclosure-openredirect
+    subject: "Re: Open redirect in OAuth login flow — resolved, no bounty"
+    from: marcus@lumenlabs.io
+    to: [ravi@lumenlabs.io, ben@lumenlabs.io]
+    date: 2025-11-18
+    factIds: [fact.security-finding-2-resolution]
+    brief: >
+      Marcus Webb closes out the open-redirect report internally: Ben Holt fixed the
+      issue, and no bounty was paid because the finding fell outside the bounty
+      program's scope at the time. Must name Ben Holt explicitly.
+
   - docId: mail.thread-api-v2-deprecation-notice.msg-1
     threadId: thread-api-v2-deprecation-notice
     subject: Pulse API v2 deprecation timeline

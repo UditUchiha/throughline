@@ -19,6 +19,11 @@ database/*.db-shm
 corpus/generated/.cache/
 .cache/
 
+# Corpus fact-verification report — a build artifact, not source. Regenerate in seconds
+# with `pnpm corpus:generate --verify-only` (no model calls). Committing it would churn
+# on every run via its timestamp.
+corpus/.generation-report.json
+
 # UI (added in M2)
 ui/.next/
 ui/node_modules/

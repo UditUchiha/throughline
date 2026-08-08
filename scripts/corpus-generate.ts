@@ -13,6 +13,7 @@
  *   pnpm corpus:generate --only=mail       # only one source type
  *   pnpm corpus:generate --only=fact.helios-owner   # only docs touching one fact
  *   pnpm corpus:generate --dry-run         # print prompts, call nothing, write nothing
+ *   pnpm corpus:generate --verify-only    # re-check corpus on disk, no model calls
  *
  * Requires GEMINI_API_KEY in the environment (see .env.example). Uses Gemini because
  * it's fast, has a generous free tier, and matches the provider the author intends to
@@ -40,9 +41,9 @@ const LEDGER_DIR = resolve(__dirname, '../corpus/ledger');
 const OUTPUT_DIR = resolve(__dirname, '../corpus/generated');
 const REPORT_PATH = resolve(__dirname, '../corpus/.generation-report.json');
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const CONCURRENCY = Number(process.env.CORPUS_GENERATE_CONCURRENCY ?? 4);
+const CONCURRENCY = Number(process.env.CORPUS_GENERATE_CONCURRENCY ?? 1);
 const MAX_RETRIES = 4;
 
 // ---------------------------------------------------------------------------
@@ -147,7 +148,9 @@ function validate(entities: Entities, facts: Fact[], documents: Documents): stri
   for (const fact of facts) {
     for (const docId of fact.expressedIn) {
       if (!docIds.has(docId)) {
-        errors.push(`facts.yaml: ${fact.id} expressedIn "${docId}" — no such document in documents.yaml`);
+        errors.push(
+          `facts.yaml: ${fact.id} expressedIn "${docId}" — no such document in documents.yaml`,
+        );
       }
     }
     if (fact.supersedes && !factIds.has(fact.supersedes)) {
@@ -158,7 +161,9 @@ function validate(entities: Entities, facts: Fact[], documents: Documents): stri
   for (const doc of allDocs) {
     for (const factId of doc.factIds) {
       if (!factIds.has(factId)) {
-        errors.push(`documents.yaml: ${doc.docId} factIds references "${factId}" — no such fact in facts.yaml`);
+        errors.push(
+          `documents.yaml: ${doc.docId} factIds references "${factId}" — no such fact in facts.yaml`,
+        );
       }
     }
   }
@@ -194,7 +199,8 @@ function personName(entities: Entities, ref: string): string {
 }
 
 function factContext(facts: Fact[], factIds: string[]): string {
-  if (factIds.length === 0) return '(none — this document should not contain any of the tracked facts below; it is pure background noise.)';
+  if (factIds.length === 0)
+    return '(none — this document should not contain any of the tracked facts below; it is pure background noise.)';
   return factIds
     .map((id) => {
       const fact = facts.find((f) => f.id === id);
@@ -296,7 +302,9 @@ async function callGemini(prompt: string): Promise<string> {
 
     if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
       const delayMs = 1000 * 2 ** attempt;
-      console.warn(`  [retry] Gemini ${res.status}, backing off ${delayMs}ms (attempt ${attempt}/${MAX_RETRIES})`);
+      console.warn(
+        `  [retry] Gemini ${res.status}, backing off ${delayMs}ms (attempt ${attempt}/${MAX_RETRIES})`,
+      );
       await new Promise((r) => setTimeout(r, delayMs));
       continue;
     }
@@ -405,15 +413,73 @@ function extractCheckTokens(entities: Entities, factStatement: string): string[]
   return [...tokens];
 }
 
-function verify(entities: Entities, facts: Fact[], doc: AnyDoc, generatedBody: string): GenerationReportEntry['verification'] {
-  const haystack = generatedBody.toLowerCase();
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/**
+ * The forms a token may legitimately take in natural prose. Only dates vary: a person
+ * writing an email says "February 25, 2026", not "2026-02-25", and forcing ISO strings
+ * into email bodies would make the corpus read like machine output — the exact weakness
+ * synthetic corpora are criticised for. Names and amounts are required verbatim, since
+ * there is no natural-language variation worth allowing there (a full name either appears
+ * or it doesn't, and that distinction is what retrieval depends on).
+ */
+function acceptableRenderings(token: string): string[] {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(token);
+  if (!iso) return [token];
+
+  const [, year, month, day] = iso;
+  const monthName = MONTHS[Number(month) - 1];
+  const d = String(Number(day)); // un-padded, e.g. "5" for "05"
+
+  return [
+    token,
+    `${monthName} ${d}, ${year}`,
+    `${monthName} ${day}, ${year}`,
+    `${d} ${monthName} ${year}`,
+    `${day} ${monthName} ${year}`,
+    `${monthName.slice(0, 3)} ${d}, ${year}`,
+    `${monthName.slice(0, 3)} ${day}, ${year}`,
+  ];
+}
+
+/**
+ * `retrievableText` must be exactly what survives into the search index — the `# heading`
+ * plus the generated body, but NOT the frontmatter. The app's markdown loader parses files
+ * with gray-matter and chunks only `content`, so a fact that appears solely in a frontmatter
+ * field (`date:`, `subject:`, `title:`) is invisible to retrieval and must still be reported
+ * as missing. Verifying the raw model output alone is equally wrong in the other direction:
+ * it flags facts that legitimately live in the generated heading.
+ */
+function verify(
+  entities: Entities,
+  facts: Fact[],
+  doc: AnyDoc,
+  retrievableText: string,
+): GenerationReportEntry['verification'] {
+  const haystack = retrievableText.toLowerCase();
   const checks: GenerationReportEntry['verification'] = [];
 
   for (const factId of doc.factIds) {
     const fact = facts.find((f) => f.id === factId);
     if (!fact) continue;
     for (const token of extractCheckTokens(entities, fact.statement)) {
-      checks.push({ token, found: haystack.includes(token.toLowerCase()) });
+      const found = acceptableRenderings(token).some((form) =>
+        haystack.includes(form.toLowerCase()),
+      );
+      checks.push({ token, found });
     }
   }
 
@@ -427,6 +493,7 @@ function verify(entities: Entities, facts: Fact[], doc: AnyDoc, generatedBody: s
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
+  const verifyOnly = args.includes('--verify-only');
   const onlyArg = args.find((a) => a.startsWith('--only='))?.split('=')[1];
 
   const { entities, facts, documents } = loadLedger();
@@ -453,13 +520,45 @@ async function main() {
     console.log(`--only=${onlyArg} matched ${allDocs.length} document(s).\n`);
   }
 
+  const report: GenerationReportEntry[] = [];
+  let completed = 0;
+
+  // --verify-only re-checks the corpus already on disk without calling the model.
+  // This is what makes hand-editing a generated document safe (PLAN.md §12.2): edit
+  // the prose, re-run this, and confirm the facts still survive — no API calls, no
+  // risk of regenerating and losing the edit.
+  if (verifyOnly) {
+    console.log(`Verifying ${allDocs.length} document(s) already on disk (no model calls)...\n`);
+    for (const { source, doc } of allDocs) {
+      const path = filePathFor(source, doc);
+      if (!existsSync(path)) {
+        console.log(`  [missing] ${doc.docId} — no file at ${path}`);
+        continue;
+      }
+      // Strip frontmatter the same way the app's markdown loader does, so we verify
+      // exactly the text that reaches the index.
+      const raw = readFileSync(path, 'utf-8');
+      const retrievableText = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+
+      const verification = verify(entities, facts, doc, retrievableText);
+      const needsReview = verification.some((v) => !v.found);
+      report.push({
+        docId: doc.docId,
+        source,
+        path,
+        factIds: doc.factIds,
+        verification,
+        needsReview,
+      });
+    }
+    writeReport(report);
+    return;
+  }
+
   console.log(
     `Generating ${allDocs.length} document(s) (mail=${documents.mail.length}, ` +
       `chat=${documents.chat.length}, notes=${documents.notes.length})${dryRun ? ' [dry run]' : ''}...\n`,
   );
-
-  const report: GenerationReportEntry[] = [];
-  let completed = 0;
 
   await mapWithConcurrency(allDocs, CONCURRENCY, async ({ source, doc }) => {
     const prompt = buildPrompt(entities, facts, source, doc);
@@ -470,18 +569,24 @@ async function main() {
       return;
     }
 
+    // Insert intentional 4.5-second delay to stay under gemini-1.5-flash's 15 RPM free-tier limit
+    await new Promise((r) => setTimeout(r, 4500));
+
     const body = await callGemini(prompt);
-    const content = `${buildFrontmatter(source, doc)}\n\n${heading(source, doc)}\n\n${body}\n`;
+    const retrievableText = `${heading(source, doc)}\n\n${body}\n`;
+    const content = `${buildFrontmatter(source, doc)}\n\n${retrievableText}`;
 
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content, 'utf-8');
 
-    const verification = verify(entities, facts, doc, body);
+    const verification = verify(entities, facts, doc, retrievableText);
     const needsReview = verification.some((v) => !v.found);
     report.push({
       docId: doc.docId,
       source,
-      path: path.replace(resolve(__dirname, '..') + '\\', '').replace(resolve(__dirname, '..') + '/', ''),
+      path: path
+        .replace(resolve(__dirname, '..') + '\\', '')
+        .replace(resolve(__dirname, '..') + '/', ''),
       factIds: doc.factIds,
       verification,
       needsReview,
@@ -494,16 +599,43 @@ async function main() {
 
   if (dryRun) return;
 
+  writeReport(report);
+}
+
+function writeReport(report: GenerationReportEntry[]): void {
+  const repoRoot = resolve(__dirname, '..');
   const needingReview = report.filter((r) => r.needsReview);
+
   writeFileSync(
     REPORT_PATH,
-    JSON.stringify({ generatedAt: new Date().toISOString(), total: report.length, needingReview: needingReview.length, entries: report }, null, 2),
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        total: report.length,
+        needingReview: needingReview.length,
+        entries: report.map((r) => ({
+          ...r,
+          // Repo-relative with forward slashes, so the report reads the same on
+          // Windows and Linux (it is regenerable, but should not churn by platform).
+          path: r.path
+            .replace(repoRoot + '\\', '')
+            .replace(repoRoot + '/', '')
+            .replace(/\\/g, '/'),
+        })),
+      },
+      null,
+      2,
+    ),
   );
 
-  console.log(`\nDone. ${report.length} document(s) written.`);
+  console.log(`\nDone. ${report.length} document(s) checked.`);
   if (needingReview.length > 0) {
-    console.log(`\n${needingReview.length} document(s) failed a verification check — a tracked fact's exact`);
-    console.log(`date/name/amount did not appear in the generated text. Review before committing:\n`);
+    console.log(
+      `\n${needingReview.length} document(s) failed a verification check — a tracked fact's exact`,
+    );
+    console.log(
+      `date/name/amount did not appear in the retrievable text. Review before committing:\n`,
+    );
     for (const r of needingReview) {
       const missing = r.verification.filter((v) => !v.found).map((v) => v.token);
       console.log(`  - ${r.docId}: missing [${missing.join(', ')}]`);
