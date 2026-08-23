@@ -38,6 +38,13 @@ export function runMigrations(db: Database.Database, embeddingDimensions: number
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS index_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
       chunk_id INTEGER PRIMARY KEY,
       embedding FLOAT[${embeddingDimensions}]
@@ -53,7 +60,10 @@ export function runMigrations(db: Database.Database, embeddingDimensions: number
  */
 function addMissingChunkColumns(db: Database.Database): void {
   const existing = new Set(
-    db.prepare<[], { name: string }>(`PRAGMA table_info(chunks)`).all().map((c) => c.name),
+    db
+      .prepare<[], { name: string }>(`PRAGMA table_info(chunks)`)
+      .all()
+      .map((c) => c.name),
   );
 
   if (!existing.has('source')) db.exec(`ALTER TABLE chunks ADD COLUMN source TEXT`);

@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
-import { OllamaChatService } from './ollama-chat.service';
+import { ConfigModule } from '../../config/config.module';
+import { LLM_SERVICE } from './llm.constants';
+import { OpenAICompatibleProvider } from './openai-compatible.provider';
 
 @Module({
-  providers: [OllamaChatService],
-  exports: [OllamaChatService],
+  imports: [ConfigModule],
+  providers: [{ provide: LLM_SERVICE, useClass: OpenAICompatibleProvider }],
+  exports: [LLM_SERVICE],
 })
 export class LlmModule {}

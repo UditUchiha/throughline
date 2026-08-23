@@ -1,15 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
+import type { EmbeddingProvider } from './embedding.types';
 
 interface OllamaEmbedResponse {
   embeddings: number[][];
 }
 
 @Injectable()
-export class OllamaEmbeddingsService {
+export class OllamaEmbeddingsService implements EmbeddingProvider {
   private readonly logger = new Logger(OllamaEmbeddingsService.name);
+  readonly dimensions: number;
+  private readonly model: string;
 
-  constructor(private readonly config: AppConfigService) {}
+  constructor(private readonly config: AppConfigService) {
+    this.model = this.config.embeddingModel;
+    this.dimensions = this.config.embeddingDimensions;
+    this.logger.log(`Embedding provider: ollama (${this.model}, ${this.dimensions}d)`);
+  }
+
+  get modelId(): string {
+    return `ollama/${this.model}`;
+  }
 
   async embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
@@ -18,7 +29,7 @@ export class OllamaEmbeddingsService {
     const res = await fetch(`${this.config.ollamaUrl}/api/embed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.config.embeddingModel, input: texts }),
+      body: JSON.stringify({ model: this.model, input: texts }),
     });
 
     if (!res.ok) {

@@ -49,4 +49,20 @@ export class SqliteIndexStateRepository implements IndexStateRepository {
   async delete(path: string): Promise<void> {
     this.db.prepare('DELETE FROM index_state WHERE path = ?').run(path);
   }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO index_meta (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, value);
+  }
+
+  async getMeta(key: string): Promise<string | null> {
+    const row = this.db
+      .prepare<[string], { value: string }>('SELECT value FROM index_meta WHERE key = ?')
+      .get(key);
+    return row?.value ?? null;
+  }
 }

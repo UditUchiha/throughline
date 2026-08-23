@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
-import { OllamaEmbeddingsService } from '../embeddings/ollama-embeddings.service';
+import { EMBEDDING_SERVICE, type EmbeddingProvider } from '../embeddings/embedding.types';
 import {
   ARTICLE_REPOSITORY,
   CHUNK_REPOSITORY,
@@ -27,7 +27,7 @@ export class IndexingService {
 
   constructor(
     private readonly config: AppConfigService,
-    private readonly embeddingsService: OllamaEmbeddingsService,
+    @Inject(EMBEDDING_SERVICE) private readonly embeddingsService: EmbeddingProvider,
     @Inject(ARTICLE_REPOSITORY)
     private readonly articleRepository: ArticleRepository,
     @Inject(CHUNK_REPOSITORY) private readonly chunkRepository: ChunkRepository,
@@ -108,6 +108,11 @@ export class IndexingService {
       this.logger.log(`Indexed "${loaded.path}" (${chunks.length} chunks)`);
       summary.indexed.push(loaded.path);
       summary.totalChunks += chunks.length;
+    }
+
+    if (summary.indexed.length > 0) {
+      const identity = `${this.embeddingsService.modelId}:${this.embeddingsService.dimensions}`;
+      await this.indexStateRepository.setMeta('embedding_identity', identity);
     }
 
     return summary;

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
-import { OllamaEmbeddingsService } from '../embeddings/ollama-embeddings.service';
+import { EMBEDDING_SERVICE, type EmbeddingProvider } from '../embeddings/embedding.types';
 import {
   ARTICLE_REPOSITORY,
   CHUNK_REPOSITORY,
@@ -17,7 +17,7 @@ export class RetrievalService {
 
   constructor(
     private readonly config: AppConfigService,
-    private readonly embeddingsService: OllamaEmbeddingsService,
+    @Inject(EMBEDDING_SERVICE) private readonly embeddingsService: EmbeddingProvider,
     @Inject(ARTICLE_REPOSITORY)
     private readonly articleRepository: ArticleRepository,
     @Inject(CHUNK_REPOSITORY) private readonly chunkRepository: ChunkRepository,
