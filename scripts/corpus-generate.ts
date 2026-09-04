@@ -324,7 +324,9 @@ async function mapWithConcurrency<T, R>(
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+  // `new Array<R>(n)` still widens to any[] under the typed-lint rules; a filled
+  // array of the right length is equivalent here and keeps the type honest.
+  const results: R[] = Array.from({ length: items.length });
   let next = 0;
 
   async function worker() {

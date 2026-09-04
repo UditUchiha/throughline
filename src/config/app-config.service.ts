@@ -35,6 +35,38 @@ export class AppConfigService {
     return this.configService.get('LLM_MODEL_DEEP', { infer: true });
   }
 
+  get llmMaxRetries(): number {
+    return this.configService.get('LLM_MAX_RETRIES', { infer: true });
+  }
+
+  get llmFallbackProviders(): LlmProvider[] {
+    return this.configService.get('LLM_FALLBACK_PROVIDERS', { infer: true });
+  }
+
+  /**
+   * The key for one provider in the chain.
+   *
+   * Each provider prefers its own `<PROVIDER>_API_KEY`. `LLM_API_KEY` is only
+   * accepted for the *primary* provider — it is that provider's key, and handing
+   * it to a fallback hop would authenticate to the wrong service with a
+   * confusing 401. Returns undefined when nothing is configured, which is how the
+   * chain builder knows to skip a provider rather than fail the boot.
+   */
+  llmApiKeyFor(provider: LlmProvider): string | undefined {
+    // Ollama is local and unauthenticated; the SDK still wants a non-empty string.
+    if (provider === 'ollama') return 'ollama';
+
+    const own =
+      provider === 'gemini'
+        ? this.configService.get('GEMINI_API_KEY', { infer: true })
+        : provider === 'groq'
+          ? this.configService.get('GROQ_API_KEY', { infer: true })
+          : this.configService.get('OPENROUTER_API_KEY', { infer: true });
+
+    if (own) return own;
+    return provider === this.llmProvider ? this.llmApiKey : undefined;
+  }
+
   // --- Embedding ---
 
   get embeddingProvider(): EmbeddingProviderType {
@@ -109,5 +141,9 @@ export class AppConfigService {
 
   get maxFanOut(): number {
     return this.configService.get('MAX_FAN_OUT', { infer: true });
+  }
+
+  get agentTimeoutMs(): number {
+    return this.configService.get('AGENT_TIMEOUT_MS', { infer: true });
   }
 }

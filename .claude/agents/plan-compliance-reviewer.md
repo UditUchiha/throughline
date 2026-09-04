@@ -54,7 +54,7 @@ change that introduces:
   OpenAI-compatible client with a configurable `baseURL` plus a provider config map; Anthropic
   is the one exception and is deliberately not implemented yet)
 - A hand-rolled agent orchestration loop in place of LangGraph.js
-- Zammad or Zoho Desk integration code
+- Integration code for either of the two client helpdesk/ticketing products named in PLAN.md §2
 - A move of guardrails or evals out into a separate repo
 - Replacing the synthetic corpus with a public dataset
 - Making the demo depend on visitor-uploaded data

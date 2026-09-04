@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
-import { EMBEDDING_SERVICE, type EmbeddingProvider } from '../embeddings/embedding.types';
+import {
+  EMBEDDING_SERVICE,
+  embeddingIdentity,
+  type EmbeddingProvider,
+} from '../embeddings/embedding.types';
 import {
   ARTICLE_REPOSITORY,
   CHUNK_REPOSITORY,
@@ -111,7 +115,10 @@ export class IndexingService {
     }
 
     if (summary.indexed.length > 0) {
-      const identity = `${this.embeddingsService.modelId}:${this.embeddingsService.dimensions}`;
+      const identity = embeddingIdentity(
+        this.embeddingsService.modelId,
+        this.embeddingsService.dimensions,
+      );
       await this.indexStateRepository.setMeta('embedding_identity', identity);
     }
 

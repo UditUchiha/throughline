@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
-import type { EmbeddingProvider } from './embedding.types';
+import { embeddingModelId, type EmbeddingProvider } from './embedding.types';
 
 interface OllamaEmbedResponse {
   embeddings: number[][];
@@ -19,10 +19,10 @@ export class OllamaEmbeddingsService implements EmbeddingProvider {
   }
 
   get modelId(): string {
-    return `ollama/${this.model}`;
+    return embeddingModelId('ollama', this.model);
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[], signal?: AbortSignal): Promise<number[][]> {
     if (texts.length === 0) return [];
 
     const start = Date.now();
@@ -30,6 +30,7 @@ export class OllamaEmbeddingsService implements EmbeddingProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: this.model, input: texts }),
+      signal,
     });
 
     if (!res.ok) {

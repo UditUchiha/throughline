@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { readdirSync, readFileSync } from 'fs';
-import { basename, dirname, extname, join, relative } from 'path';
+import { basename, extname, join, relative } from 'path';
 import matter from 'gray-matter';
 import type { CorpusSource } from '../common/types/knowledge.types';
 

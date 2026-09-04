@@ -14,7 +14,7 @@ export class ReindexScheduler implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    const interval = setInterval(() => this.runReindex(), this.config.reindexIntervalMs);
+    const interval = setInterval(() => void this.runReindex(), this.config.reindexIntervalMs);
     this.schedulerRegistry.addInterval('background-reindex', interval);
     this.logger.log(`Background reindex scheduled every ${this.config.reindexIntervalMs}ms`);
 

@@ -15,6 +15,7 @@ you need, not the whole file. Index below.
 | Lint (autofix) | `pnpm lint` |
 | Tests | `pnpm test` |
 | Re-verify the corpus answer key | `pnpm corpus:generate --verify-only` (no model calls, seconds) |
+| Ask the agent | `curl -N -X POST localhost:5000/agent/ask -H 'Content-Type: application/json' -d '{"question":"..."}'` |
 | Regenerate corpus docs for one fact | `pnpm corpus:generate --only=fact.<id>` (needs `GEMINI_API_KEY`) |
 
 Node 22+, pnpm. Local Ollama on `:11434` is required for embeddings and chat
@@ -71,6 +72,7 @@ src/config/       Zod env schema + AppConfigService — the only place env is re
 src/repositories/ ports/ (interfaces + DI tokens) and sqlite/ (adapters)
 src/knowledge/    markdown loader, chunker, idempotent indexing service
 src/rag/          RetrievalService — vector search over sqlite-vec
+src/agent/        LangGraph graph: state, nodes, tools, frozen event contract, SSE controller
 src/ai/, src/embeddings/  Ollama chat + embedding clients
 corpus/           ledger (ground truth) + generated documents + questions
 evals/            eval harness (generalized in M6; currently empty)
@@ -94,6 +96,12 @@ scripts/          one-off authoring tools, run outside the Nest context
 
 ## Known state
 
-Retrieval has **not** been proven end-to-end against real vectors — see the warning at the
-top of PLAN.md. `src/` currently has zero `.spec.ts` files. There is no CI yet; it arrives
-in M6.
+M0 and M1 are done: retrieval **is** proven end-to-end (169/169 documents indexed, live
+agent runs producing cited answers), and the agent is reachable at `POST /agent/ask` (SSE)
+and `GET /agent/runs/:runId`. M2 (UI) is next.
+
+Still open: `LLM_PROVIDER=ollama` has never been exercised, and no real corpus question has
+been seen driving a live second hop.
+
+**`HANDOFF.md` is the orientation doc** — read it before PLAN.md if you are picking this up
+cold. There is no CI yet; it arrives in M6.

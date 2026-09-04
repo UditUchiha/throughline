@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AppConfigService } from '../config/app-config.service';
-import type { EmbeddingProvider } from './embedding.types';
+import { embeddingModelId, type EmbeddingProvider } from './embedding.types';
 
 @Injectable()
 export class GeminiEmbeddingProvider implements EmbeddingProvider {
@@ -21,6 +21,10 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     this.client = new OpenAI({
       baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
       apiKey,
+      // A full reindex is 169 sequential calls; the free tier rate-limits per
+      // minute, so without retries a reindex fails partway and leaves the index
+      // half-built. See the same reasoning in OpenAICompatibleProvider.
+      maxRetries: this.config.llmMaxRetries,
     });
     this.model = this.config.embeddingModel;
     this.dimensions = this.config.embeddingDimensions;
@@ -28,18 +32,21 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
   }
 
   get modelId(): string {
-    return `gemini/${this.model}`;
+    return embeddingModelId('gemini', this.model);
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[], signal?: AbortSignal): Promise<number[][]> {
     if (texts.length === 0) return [];
 
     const start = Date.now();
-    const response = await this.client.embeddings.create({
-      model: this.model,
-      input: texts,
-      dimensions: this.dimensions,
-    });
+    const response = await this.client.embeddings.create(
+      {
+        model: this.model,
+        input: texts,
+        dimensions: this.dimensions,
+      },
+      { signal },
+    );
 
     const embeddings = response.data.map((d) => d.embedding);
     this.logger.debug(`Embedded ${texts.length} text(s) in ${Date.now() - start}ms`);

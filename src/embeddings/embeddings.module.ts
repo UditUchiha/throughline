@@ -16,8 +16,12 @@ import { GeminiEmbeddingProvider } from './gemini-embedding.provider';
             return new GeminiEmbeddingProvider(config);
           case 'ollama':
             return new OllamaEmbeddingsService(config);
-          default:
-            throw new Error(`Unknown EMBEDDING_PROVIDER: ${config.embeddingProvider}`);
+          default: {
+            // Exhaustiveness check: adding a provider to the enum without a case
+            // here becomes a compile error rather than a runtime surprise.
+            const unhandled: never = config.embeddingProvider;
+            throw new Error(`Unknown EMBEDDING_PROVIDER: ${String(unhandled)}`);
+          }
         }
       },
       inject: [AppConfigService],

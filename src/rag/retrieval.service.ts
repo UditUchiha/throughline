@@ -30,9 +30,17 @@ export class RetrievalService {
    * from the specified source types are returned (e.g. `['mail']` for
    * mail_search, `['chat', 'notes']` for a combined search).
    */
-  async search(query: string, topK?: number, sourceFilter?: string[]): Promise<RetrievedChunk[]> {
+  async search(
+    query: string,
+    topK?: number,
+    sourceFilter?: string[],
+    signal?: AbortSignal,
+  ): Promise<RetrievedChunk[]> {
     const start = Date.now();
-    const [queryEmbedding] = await this.embeddingsService.embed([query]);
+    // Embedding is the only network hop in a search, so it is the only place a
+    // caller's deadline can actually take effect; the sqlite work below is local
+    // and fast.
+    const [queryEmbedding] = await this.embeddingsService.embed([query], signal);
     const hits = await this.embeddingRepository.search(
       queryEmbedding,
       topK ?? this.config.topK,

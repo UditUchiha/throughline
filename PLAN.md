@@ -11,7 +11,7 @@ on the repository. Everything needed to start is in this document.
 
 ## Current status — read this first
 
-*Authored 2026-08-04. Status last updated 2026-08-05.*
+*Authored 2026-08-04. Status last updated 2026-09-04.*
 
 **Repo:** https://github.com/UditUchiha/throughline (public, one clean commit, no client data
 in history). Local dev on Windows, pnpm, Node 22.
@@ -22,18 +22,63 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M0.5 — corpus** | ✅ Done | 169 documents generated and committed (82 mail / 47 chat / 40 notes). All fact-bearing documents pass verification — re-check anytime with `pnpm corpus:generate --verify-only` (reads the corpus on disk, no model calls, seconds). |
 | **M0.6 — rewire retrieval** | ✅ Done | `source`/`doc_id` threaded through migrations → `ChunkRepository` → `RetrievalService` → `RetrievedChunk`; frontmatter parsed via `gray-matter`; `sourceFilter` on `EmbeddingRepository.search`; `KNOWLEDGE_PATH` → `./corpus/generated`. |
 | **M0.7 — README v1** | ✅ Done | Honest about current state; points here for the roadmap. |
-| **M1–M6** | ⬜ Not started | **M1 is the next task.** Unchanged from the plan below. |
+| **M1.1 — provider adapter** | ✅ Done | `LLM_SERVICE` token → one `OpenAICompatibleProvider`; logical tiers in `model-tiers.ts`. |
+| **M1.2 — embeddings + index identity** | ✅ Done | `EMBEDDING_SERVICE` token, gemini + ollama providers, `index_meta` identity written on reindex and checked at boot. |
+| **M1.3 — the agent graph** | ✅ Done | LangGraph `StateGraph`: triage → (plan) → execute → reflect ↺ → synthesize. Tool registry with `mail_search` / `chat_search` / `notes_search` / `all_sources_search`. |
+| **M1.4 — streaming HTTP surface** | ✅ Done | `POST /agent/ask` (SSE) and `GET /agent/runs/:runId`. Event contract frozen in `src/agent/events.ts`. CORS enabled. |
+| **Provider failover** | ✅ Done | Pulled forward from §9 because free-tier quota was killing ~half of all runs. `LLM_FALLBACK_PROVIDERS` + `FailoverLlmService`. |
+| **M2–M6** | ⬜ Not started | **M2 (UI) is the next task.** Unchanged from the plan below. |
+
+> [!NOTE]
+> **The embedding/retrieval path is now proven end-to-end** (2026-09-02, resolving the
+> standing warning that sat here). All 169 corpus documents indexed against
+> `gemini-embedding-001` at 768d; a re-run skipped 169/169 by checksum; retrieval returns
+> sensible ranked hits; and `sourceFilter` executed for real via the agent's per-source
+> tools. Live agent runs answered a multi-hop question (2 sub-questions, 2 sources, 10
+> pieces of evidence, all citations resolving) in ~10s and a simple one in ~4.5s.
+>
+> Two things surfaced while proving it, both fixed:
+> 1. **The Gemini model ids in `model-tiers.ts` had been retired by Google**
+>    (`gemini-2.0-flash-lite`, and `text-embedding-004` in `.env.example`). A stale id fails
+>    as a 404 at call time, not at boot. Current: `gemini-3.5-flash-lite` / `gemini-3.5-flash`,
+>    and `gemini-embedding-001` for embeddings. **Gemini pro models return 429 on the free
+>    tier**, so the `deep` tier maps to `gemini-3.5-flash`; the seam stays for a billed key.
+> 2. **The index-identity guard compared two differently-built strings** — the writer stored
+>    `gemini/gemini-embedding-001:768` while the boot check looked for
+>    `gemini-embedding-001:768`, so it refused to boot against an index it had just built
+>    correctly. Both sides now go through `embeddingIdentity()` in
+>    `src/embeddings/embedding.types.ts`, covered by `embedding-identity.spec.ts`.
+
+> [!NOTE]
+> **Free-tier quota turned out to be the dominant failure mode, and is now handled**
+> (2026-09-04). Measured: Gemini's free tier allows ~20 requests per window per model, and one
+> agent run costs ~4 model calls — so a burst of runs failed roughly half the time. Two
+> findings worth keeping:
+> 1. **Retrying harder makes a quota 429 worse.** Every attempt counts against the same
+>    budget, so `LLM_MAX_RETRIES=5` turned one synthesis call into six and exhausted the
+>    window faster than not retrying. It is now 2. Retries are for transient 5xx, not quota.
+> 2. **The only real answer is another provider**, exactly as §9 says. `LLM_FALLBACK_PROVIDERS`
+>    now takes an ordered chain; `FailoverLlmService` moves to the next provider on quota/5xx/
+>    connection errors and rethrows 4xx immediately (a malformed request follows you to the
+>    next vendor). Verified live: 6 concurrent runs, the same burst that previously killed
+>    8/8, now 6/6 with the log showing `gemini → groq` failover.
+>
+> **Groq's shipped model ids were also stale** (`llama-3.x` retired). Now `openai/gpt-oss-20b`
+> / `openai/gpt-oss-120b`, verified to support strict `json_schema`, and 4–5× faster than
+> Gemini. `groq/compound*` does **not** support structured output — do not reach for it.
+> OpenRouter's ids in `model-tiers.ts` remain unverified; no key has been exercised.
 
 > [!WARNING]
-> **The embedding/retrieval path has not been proven end-to-end.** A full
-> `POST /knowledge/reindex` over the corpus requires a local Ollama on `:11434`
-> (`ollama pull bge-m3`), which was unavailable when M0.6 landed. What *was* verified
-> directly: the migration's legacy-schema `ALTER` path and idempotent re-run, and the
-> markdown loader parsing 169/169 documents with `source` + `docId` populated and no
-> frontmatter leaking into indexed text. **Before building M1 on top of this, start
-> Ollama, run a reindex, and spot-check several `corpus/questions.yaml` entries through
-> `GET /knowledge/search?q=...`** — particularly one with a `sourceFilter`, since that
-> code path has never executed against real vectors.
+> **One M1 acceptance criterion remains unverified:** `LLM_PROVIDER=ollama` has never run, for
+> lack of local hardware. The *substance* of that criterion — that switching providers needs
+> no code change — is now proven, since a run served by Gemini and a run served by Groq differ
+> only by configuration. The Ollama path specifically is still untested.
+>
+> A live second hop **is** proven: 3 of 30 multi-hop corpus questions produced
+> `reflect_done { gapFound: true }` and a real follow-up retrieval. Good demo question:
+> *"What did the board approve and what were the outcomes?"* The ~10% rate is deliberately
+> not tuned — M6 is what can measure whether extra hops improve answers, and adjusting the
+> reflect prompt before then is guessing.
 
 **Decisions locked since authoring** (do not re-litigate — see §11):
 - §11.1 Project name: `throughline`.
@@ -138,7 +183,7 @@ without explicit approval from the repo owner.
 | **Four separate LLM provider classes + a router service** | Gemini, Groq, OpenRouter, DeepSeek, Cerebras and Ollama all expose OpenAI-compatible HTTP APIs. One client with a configurable `baseURL` plus a provider config map covers all of them. See M1.1. Anthropic requires a distinct code path; leave the interface shaped for it but do not implement it yet. |
 | **Hand-rolled agent orchestration loop** | The earlier plan argued against LangGraph to avoid a dependency. Rejected: LangGraph.js provides the checkpointer (which is the short-term-memory persistence layer), streaming graph events (which is how the UI renders live progress), and first-class LangSmith tracing. Rebuilding those is thousands of lines, worse, and costs the recognizable ecosystem vocabulary. |
 | **A separate "Guardrails + eval CI" repository** | Folded into this project as M6. A guardrail system evaluated against synthetic examples is a toy; evaluated against a real agentic system with real failure modes it is credible. See §8. |
-| **Zammad ingestion pipeline** | Removed in M0. It is client data tooling. The code survives in the sibling `client-repo` repo if ever needed. |
+| **Zammad ingestion pipeline** | Removed in M0. It is client data tooling. The code survives in the original client repo if ever needed. |
 | **Replacing the synthetic corpus with a public dataset** (Enron, Kaggle, a scraped corpus) | Tempting because it feels "more real," but it destroys the eval suite. The expensive part of an eval set is the *answer key*, not the documents: a public dump gives you text with no "these 2 facts, in these 2 documents, are required to answer this" annotation. You would either hand-label it (weeks) or have an LLM label it — and then the eval is graded by the same model that wrote it, which measures nothing. Ledger-first synthesis is what purpose-built multi-hop benchmarks do when no annotated corpus exists for the domain (cf. LoCoMo, generated from a persona/event graph then verified; HotpotQA/MuSiQue's contribution is precisely the human-annotated supporting facts). **The facts here are human-authored; only the prose is generated; the generator verifies the facts survived.** Keep it. |
 | **Gating the demo behind user-uploaded data** | See §12.1 — bring-your-own-data is a deferred post-M2 nice-to-have, not the answer to "what does a visitor ask." One-click example questions from `corpus/questions.yaml` solve that at zero cost. |
 
@@ -186,10 +231,10 @@ RagModule, SupportModule, SchedulerModule, IngestionModule
 | `src/ingestion/**` (entire tree, ~700 LOC) | Zammad client ingestion |
 | `scripts/zammad-*.ts` (4 files) | ditto |
 | `scripts/import-pdf.ts` | One-off converter for a third-party manual |
-| `knowledge/articles/vendor-product.md` | Third-party product manual, not owned |
+| `knowledge/articles/<vendor-product>.md` | Third-party product manual, not owned |
 | `knowledge/articles/zammad-qa/` (10k files) | Real customer tickets. **Already gitignored.** Delete from disk or leave untracked; never commit. |
 | `ingestion/` (110,924 files) | Raw ticket JSON. **Already gitignored.** Leave on disk, untracked. |
-| `prompts/classify-system.vendor-product.txt` | |
+| `prompts/classify-system.<vendor-product>.txt` | |
 | `prompts/classify-system.ecommerce.txt` | Client intent taxonomy |
 | `prompts/draft-system.txt`, `prompts/draft-template.txt` | Support-reply prompts, superseded |
 | `evals/golden-set.json`, `evals/golden-set.de.json`, `evals/results-*.json` | Client-derived eval data. **Record the aggregate numbers in `docs/` before deleting** — see M0.4. |
@@ -199,10 +244,15 @@ RagModule, SupportModule, SchedulerModule, IngestionModule
 
 ### Client references in tracked source (must all be gone before first commit)
 
-Grep for `client-repo`, `zoho`, `vendor-product`, `zammad` (case-insensitive). Known hits at time
-of writing: `src/config/env.schema.ts` (Zammad env vars + a comment naming the client),
-`src/ingestion/zammad/signature.ts`, `prompts/classify-system.vendor-product.txt`,
-`evals/golden-set.json`, `.env.example`, `README.md`, `package.json` (`"name": "client-repo"`).
+Grep for `zoho` and `zammad` (case-insensitive), **plus two further identifiers this document
+deliberately no longer spells out**: the client's former package/repo name, and the third-party
+product whose manual sat in the knowledge base. Both were scrubbed in M0 and removed from this
+plan afterwards, so that a public reader of PLAN.md cannot recover them. If you need the literal
+strings to re-run the check, ask the repo owner.
+
+Known hits at time of writing: `src/config/env.schema.ts` (Zammad env vars + a comment naming
+the client), `src/ingestion/zammad/signature.ts`, a vendor-specific classification prompt,
+`evals/golden-set.json`, `.env.example`, `README.md`, and `package.json`'s `name` field.
 
 **M0 acceptance includes: that grep returns zero hits across all tracked files.**
 
@@ -368,8 +418,9 @@ architecture diagram, and an explicit "current status: M0" note. Rewrite at ever
 
 #### Acceptance criteria — M0
 
-- [ ] `grep -ril "client-repo\|zoho\|vendor-product\|zammad" .` (excluding `.git/`, `node_modules/`,
-      and gitignored dirs) returns **zero** hits.
+- [ ] `grep -ril "zoho\|zammad" .` (excluding `.git/`, `node_modules/`, and gitignored dirs)
+      returns **zero** hits, and so does the same grep for the two identifiers described but not
+      named in §3.
 - [ ] `git log` has exactly one commit; `git show --stat HEAD` contains no file under
       `ingestion/`, `knowledge/articles/zammad-qa/`, or `database/`.
 - [ ] `pnpm build` succeeds with no TypeScript errors.

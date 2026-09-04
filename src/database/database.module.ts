@@ -6,6 +6,7 @@ import { dirname } from 'path';
 import { AppConfigService } from '../config/app-config.service';
 import { SQLITE_CONNECTION } from './database.constants';
 import { runMigrations } from './migrations';
+import { embeddingIdentity, embeddingModelId } from '../embeddings/embedding.types';
 
 /**
  * Detect a stale index built by a different embedding model or dimensions.
@@ -13,17 +14,10 @@ import { runMigrations } from './migrations';
  * means every stored vector is garbage for the current model, so we fail fast
  * with an actionable message rather than returning silently wrong results.
  */
-function checkIndexIdentity(
-  db: Database.Database,
-  model: string,
-  dimensions: number,
-  logger: Logger,
-): void {
+function checkIndexIdentity(db: Database.Database, currentId: string, logger: Logger): void {
   const row = db
     .prepare<[], { value: string }>(`SELECT value FROM index_meta WHERE key = 'embedding_identity'`)
     .get();
-
-  const currentId = `${model}:${dimensions}`;
 
   if (!row) {
     // First boot or freshly deleted DB — no index exists yet, nothing to mismatch.
@@ -55,7 +49,15 @@ function checkIndexIdentity(
         sqliteVec.load(db);
 
         runMigrations(db, config.embeddingDimensions);
-        checkIndexIdentity(db, config.embeddingModel, config.embeddingDimensions, logger);
+        // Built the same way IndexingService writes it, so the two cannot drift.
+        checkIndexIdentity(
+          db,
+          embeddingIdentity(
+            embeddingModelId(config.embeddingProvider, config.embeddingModel),
+            config.embeddingDimensions,
+          ),
+          logger,
+        );
 
         return db;
       },
