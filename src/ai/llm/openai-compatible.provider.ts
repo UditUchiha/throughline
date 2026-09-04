@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import OpenAI from 'openai';
+import OpenAI, { APIError } from 'openai';
 import type { AppConfigService, LlmProvider } from '../../config/app-config.service';
 import { resolveBaseUrl, resolveModel } from './model-tiers';
 import type { ChatMessage, ChatOptions, ChatResult, ChatTier, LlmService } from './llm.types';
@@ -107,7 +107,29 @@ export class OpenAICompatibleProvider implements LlmService {
         signal: options.signal,
       });
     } catch (error) {
-      throw this.describeFailure(error, model, tier);
+      // Structured output is the most fragile corner of an OpenAI-compatible
+      // surface: providers disagree on how strictly to enforce a schema, and some
+      // models fail in ways the *server* rejects with a 400 before any text
+      // reaches us. Both observed on Groq's gpt-oss models, on real prompts that
+      // a simplified reproduction could not trigger:
+      //   "Generated JSON does not match the expected schema"
+      //   "Tool choice is none, but model called a tool"
+      //
+      // The request is well-formed; the generation was not. So this is neither a
+      // reason to fail the run nor to fail over — retry once on this provider
+      // without `response_format` and let `parseJsonObject` do the job it exists
+      // to do. Every prompt here asks for JSON in words as well as in schema.
+      if (options.jsonSchema && error instanceof APIError && error.status === 400) {
+        response = await this.retryWithoutStructuredOutput(
+          params,
+          options,
+          model,
+          tier,
+          error.message,
+        );
+      } else {
+        throw this.describeFailure(error, model, tier);
+      }
     }
 
     const latencyMs = Date.now() - start;
@@ -129,6 +151,28 @@ export class OpenAICompatibleProvider implements LlmService {
     };
   }
 
+  private async retryWithoutStructuredOutput(
+    params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+    options: ChatOptions,
+    model: string,
+    tier: ChatTier,
+    causeMessage: string,
+  ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+    this.logger.warn(
+      `${this.provider} rejected structured output for ${model}: ${causeMessage.slice(0, 100)} — ` +
+        `retrying without response_format`,
+    );
+
+    const withoutSchema = { ...params };
+    delete withoutSchema.response_format;
+
+    try {
+      return await this.client.chat.completions.create(withoutSchema, { signal: options.signal });
+    } catch (retryError) {
+      throw this.describeFailure(retryError, model, tier);
+    }
+  }
+
   /**
    * Turns an SDK error into something a caller can act on.
    *
@@ -138,14 +182,14 @@ export class OpenAICompatibleProvider implements LlmService {
    * or the eval log actually needs.
    */
   private describeFailure(error: unknown, model: string, tier: ChatTier): Error {
-    if (error instanceof OpenAI.APIError && error.status === 429) {
+    if (error instanceof APIError && error.status === 429) {
       return new QuotaExceededError(
         `${this.provider} rate limit reached for ${model} (tier "${tier}"). Free tiers cap ` +
           `requests per window and one agent run makes several calls — wait for the window to ` +
           `reset, or configure LLM_FALLBACK_PROVIDERS so the run continues on another provider.`,
       );
     }
-    if (error instanceof OpenAI.APIError && error.status === 404) {
+    if (error instanceof APIError && error.status === 404) {
       return new Error(
         `${this.provider} has no model "${model}" (tier "${tier}"). Model ids are ` +
           `retired over time — check the provider's model list and update src/ai/llm/model-tiers.ts.`,

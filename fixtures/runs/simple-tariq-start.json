@@ -1,0 +1,131 @@
+{
+  "question": "When did Tariq Hassan start at Lumen Labs?",
+  "label": "Simple — triage skips planning entirely",
+  "capturedAt": "2026-09-04T13:28:28.449Z",
+  "events": [
+    {
+      "type": "run_started",
+      "runId": "d773b686-daf9-444c-a2c4-1ee5b0283a96",
+      "question": "When did Tariq Hassan start at Lumen Labs?",
+      "seq": 0,
+      "ts": "2026-09-04T13:28:25.925Z"
+    },
+    {
+      "type": "triage_done",
+      "complexity": "simple",
+      "reasoning": "The question asks for a single fact that can be answered with one search.",
+      "seq": 1,
+      "ts": "2026-09-04T13:28:26.551Z"
+    },
+    {
+      "type": "tool_started",
+      "subQuestionId": "sq1",
+      "tool": "all_sources_search",
+      "input": "When did Tariq Hassan start at Lumen Labs?",
+      "seq": 2,
+      "ts": "2026-09-04T13:28:26.553Z"
+    },
+    {
+      "type": "tool_finished",
+      "subQuestionId": "sq1",
+      "tool": "all_sources_search",
+      "evidenceIds": [
+        "ev-168",
+        "ev-32",
+        "ev-23",
+        "ev-140",
+        "ev-53"
+      ],
+      "latencyMs": 535,
+      "seq": 3,
+      "ts": "2026-09-04T13:28:27.088Z"
+    },
+    {
+      "type": "evidence_added",
+      "evidence": [
+        {
+          "evidenceId": "ev-168",
+          "docId": "notes.tariq-onboarding-plan",
+          "source": "notes",
+          "title": "Onboarding plan — Tariq Hassan",
+          "text": "# Onboarding plan — Tariq Hassan Welcome to the team, Tariq! Glad to finally have you on board with us here at Lumen Labs. As we discussed during your sync yesterday, your first project assignment is the [[Aurora migration]], working directly alongside Ines Dubois. Ines has been leading the initial groundwork for this over the past few weeks, particularly regarding how it intersects with our [[Pulse]] session replay pipelines and error tracking data structures, so she’ll be your best point of contact as you get your local environment spun up. For your first week, keep things light. Focus on getting access to the staging clusters, reviewing the current architecture docs, and pairing with Ines to understand the scope of the migration. There's no rush on shipping anything major just yet—take your time getting familiar with how we handle performance analytics and telemetry across the board. Once you've had a chance to look over the repository, we can set up a quick coffee chat to walk through any questions you have about the codebase or our internal tooling. Welcome again to the team!",
+          "distance": 0.46677112579345703,
+          "retrievedBy": "sq1",
+          "tool": "all_sources_search"
+        },
+        {
+          "evidenceId": "ev-32",
+          "docId": "chat.onboarding.2026-01-06",
+          "source": "chat",
+          "title": "#onboarding — 2026-01-06",
+          "text": "# #onboarding — 2026-01-06 Ines Dubois: Welcome to Lumen Labs, Tariq! Excited to have you on the team. Tariq Hassan: Thanks Ines! Glad to finally be here. Ines Dubois: Just pinging to introduce you to your onboarding buddy, Marcus. He'll show you the ropes and help get your local dev environment set up for Pulse. Tariq Hassan: Awesome, thanks for setting that up. I'll reach out to him in a bit. Ines Dubois: Sounds good. Let me know if you need anything else today!",
+          "distance": 0.48065614700317383,
+          "retrievedBy": "sq1",
+          "tool": "all_sources_search"
+        },
+        {
+          "evidenceId": "ev-23",
+          "docId": "chat.general.2026-01-05",
+          "source": "chat",
+          "title": "#general — 2026-01-05",
+          "text": "# #general — 2026-01-05 Ines Dubois: Welcome to the team, Tariq! Excited to have you on board for your first day. Ravi Anand: Hey Tariq! Welcome to Lumen Labs. Let me know if you need help getting set up with the Pulse observability stack today. Tariq Hassan: Thanks, both! Happy to be here. My official start date is 2026-01-05 and I'm ready to dive into the SRE work. Ines Dubois: Awesome. Ravi, can you help Tariq get his access requests sorted out this morning? Ravi Anand: On it! I'll ping you in a few minutes, Tariq, and we can walk through the onboarding checklist together.",
+          "distance": 0.4924193024635315,
+          "retrievedBy": "sq1",
+          "tool": "all_sources_search"
+        },
+        {
+          "evidenceId": "ev-140",
+          "docId": "notes.company-values",
+          "source": "notes",
+          "title": "Company values",
+          "text": "# Company values At Lumen Labs, our culture has always been centered around curiosity, ownership, and moving with a healthy sense of urgency. We are a tight-knit team, and how we build [[Pulse]] is just as important as the code we ship every week. First and foremost, we believe in radical transparency. Whether we are discussing product roadmaps or reviewing infrastructure costs, open communication keeps everyone aligned. Nobody likes working in a silo, so we keep our [[Team syncs]] conversational and make sure [[Engineering guidelines]] are accessible to everyone on the team, from senior architects to our newest hires. We also champion developer autonomy. Trust is foundational here; we hire smart people and give them the space to execute without micromanagement. If someone wants to prototype a new feature or experiment with a different approach to [[Performance analytics]], they are encouraged to run with it, test it thoroughly, and share what they learn with the rest of the crew. Mistakes are treated as learning opportunities rather than failures, provided we are open about what went wrong and how to fix it. Finally, we keep our users at the center of everything. We spend a lot of time talking to engineering teams who rely on our platform day in and day out. Their pain points inform our backlog, and our shared obsession with reducing friction and latency drives us forward. As we grow [[Lumen Labs]] beyond thirty people, maintaining this collaborative and builder-first ethos is our highest priority.",
+          "distance": 0.5185036659240723,
+          "retrievedBy": "sq1",
+          "tool": "all_sources_search"
+        },
+        {
+          "evidenceId": "ev-53",
+          "docId": "mail.thread-api-v2-deprecation-notice.msg-1",
+          "source": "mail",
+          "title": "Pulse API v2 deprecation timeline",
+          "text": "# Pulse API v2 deprecation timeline Hi everyone, I'm writing to share an important update regarding our API roadmap here at Lumen Labs. As we continue to roll out improvements across Pulse, we want to make sure everyone is leveraging the most stable, performant version of our platform. To that end, please be aware that Pulse API v2 was originally scheduled for deprecation on 2026-06-01. If you are still utilizing v2 endpoints for session replay, error tracking, or performance analytics, we strongly encourage you to migrate to v3 as soon as possible. The newer version offers significant speed improvements, better payload structures, and more robust authentication methods. We have put together a comprehensive migration guide in our documentation portal to help make this transition as smooth as possible for your engineering teams. If you run into any roadblocks or have questions about specific endpoints, please don't hesitate to reach out to our support team or reply directly to this thread. Best, Noah Fischer Lumen Labs",
+          "distance": 0.523897111415863,
+          "retrievedBy": "sq1",
+          "tool": "all_sources_search"
+        }
+      ],
+      "seq": 4,
+      "ts": "2026-09-04T13:28:27.088Z"
+    },
+    {
+      "type": "reflect_done",
+      "gapFound": false,
+      "followUps": [],
+      "seq": 5,
+      "ts": "2026-09-04T13:28:27.701Z"
+    },
+    {
+      "type": "token_delta",
+      "text": "Tariq Hassan's official start date at Lumen Labs was 2026-01-05.",
+      "seq": 6,
+      "ts": "2026-09-04T13:28:28.446Z"
+    },
+    {
+      "type": "run_finished",
+      "answer": {
+        "text": "Tariq Hassan's official start date at Lumen Labs was 2026-01-05.",
+        "citations": [],
+        "abstained": false
+      },
+      "citations": [],
+      "usage": {
+        "inputTokens": 2886,
+        "outputTokens": 397
+      },
+      "costUsd": null,
+      "latencyMs": 2522,
+      "seq": 7,
+      "ts": "2026-09-04T13:28:28.447Z"
+    }
+  ]
+}

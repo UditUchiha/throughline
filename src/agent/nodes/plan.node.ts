@@ -66,14 +66,15 @@ Break the user's question into 2 to ${maxFanOut} sub-questions. Each sub-questio
 self-contained — it will be run as a standalone search, with no knowledge of the others or of
 the original question.
 
-Available tools:
+Search targets you may name in your JSON output. These are labels to choose between, not
+functions to call — never emit a tool call, only JSON:
 ${this.tools.describeForPlanner()}
 
 Rules:
-- Assign each sub-question the single tool most likely to hold that evidence.
+- Assign each sub-question the single target most likely to hold that evidence.
 - Leave "dependsOn" empty unless a sub-question genuinely cannot be phrased without the answer
   to another. Independent sub-questions run in parallel, so needless dependencies cost latency.
-- Do not invent tool names. Use only the names listed above.
+- Do not invent target names. Use only the names listed above.
 Reply with JSON only.`;
 
     const result = await this.llm.chat([{ role: 'user', content: state.question }], {

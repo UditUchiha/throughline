@@ -5,7 +5,7 @@ Orientation document for a new agent or contributor picking this project up cold
 acceptance criteria; `CLAUDE.md` is the always-loaded rules digest. This file tells you
 where you are, what has actually been proven, and what to do next.
 
-_Last updated: 2026-09-04 (M1 complete + provider failover; M2 is next)._
+_Last updated: 2026-09-04 (M1 complete + recorded-run replay; M2 is next)._
 
 ---
 
@@ -111,7 +111,7 @@ hook auto-runs `pnpm corpus:generate --verify-only` on ledger edits.
 | M1.3 the agent graph | ✅ | LangGraph `StateGraph` + tool registry + 5 nodes. Verified live against the real corpus. |
 | M1.4 SSE surface | ✅ | `POST /agent/ask` (SSE), `GET /agent/runs/:runId`. Event contract frozen. |
 | Provider failover | ✅ | Pulled forward from §9 — free-tier quota was killing ~half of all runs. `gemini → groq` chain, verified live. |
-| Lint | ✅ | `pnpm lint` passes clean (was 22 errors). |
+| Lint / typecheck | ✅ | `pnpm lint`, bare `npx eslint .`, and `npx tsc --noEmit` all exit 0. 50 tests across 7 suites. |
 | **M2 UI** | ⬜ **← next task** | Next.js on Vercel, pure rendering over the frozen event contract. |
 | M3 observability · M4 memory · M5 MCP · M6 evals+CI | ⬜ | See PLAN.md §5. |
 
@@ -128,15 +128,55 @@ triage node paying for itself, and it is a number M6 reports.
 
 Unanswerable — the agent abstains with "I could not find this in the available sources."
 
+**Second hop** — *"What did the board approve and what were the outcomes?"* is the known-good
+multi-hop demo question: it plans, fans out across all three sources, and `reflect` returns
+`gapFound: true` with a real follow-up retrieval. Only ~3 in 30 multi-hop questions trigger a
+second hop, so use this one when you need to *show* the behaviour rather than hope for it.
+
+**Run one before building against it.** `pnpm start:dev`, then:
+
+```bash
+curl -N -X POST localhost:5000/agent/ask -H 'Content-Type: application/json'   -d '{"question":"What did the board approve and what were the outcomes?"}'
+```
+
+Reading the real event stream for two minutes beats any description of it in this file.
+
+### Provider choice changes agent *behaviour*, not just speed
+
+Measured across the same corpus questions:
+
+| | Gemini (`gemini-3.5-flash-lite`) | Groq (`openai/gpt-oss-20b`) |
+|---|---|---|
+| Second hop fires | ~3 of 30 multi-hop questions | 3 of 4 |
+| Per-call latency | ~2–3s, fairly steady | 0.35s–19.7s, highly variable |
+| Structured output | tolerant | strict; rejects non-compliant generations with a 400 |
+
+Two consequences worth knowing before you tune anything:
+
+- **Groq's gpt-oss reads a prose tool menu as function calling.** The reflect prompt used to say
+  "Available tools for follow-up searches", and the model emitted an actual tool call — rejected
+  with `400 Tool choice is none, but model called a tool`, because the request declares no tools.
+  The prompts now name them as "search targets … labels to choose between, not functions to
+  call". **Keep that framing** if you touch those prompts; it is what makes them portable.
+- **This is why Gemini is primary** (§11.3). Groq's numbers look attractive until you capture
+  runs on both: it trades away citations, and a 48s run breaks §1's 30-second target. The four
+  fixtures in `fixtures/runs/` were captured on Groq and therefore show its weaker output —
+  re-run `pnpm capture:runs --force` on Gemini when you want the demo to look its best.
+
+`OpenAICompatibleProvider` also degrades gracefully now: a 400 on a request that carried a
+`response_format` is retried once without it, letting `parseJsonObject` handle output the
+provider would otherwise have rejected outright.
+
 ### Deviations from PLAN.md as written (deliberate — keep them)
 
 - **Corpus verification is literal-token matching**, not the embedding-similarity check §6
   suggests. Rationale in `scripts/corpus-generate.ts`'s header: "did the exact date survive"
   is the actual failure mode, is fully deterministic, and needs no arbitrary cutoff.
-- **Default embedding provider is currently `gemini`**, while PLAN.md §11.4 locks the default
-  as _local in-process_ (`fastembed` / `bge-small-en-v1.5`, 384d). The local provider is
-  **not yet written**. This matters because §9's offline Docker build depends on it. Treat it
-  as an open item for M2, not a settled deviation.
+- **Embeddings default to Gemini** (`gemini-embedding-001`, 768d). PLAN.md §11.4 originally
+  locked _local in-process_ instead; that was formally superseded on 2026-09-04. The
+  consequence is not cosmetic — §9's Docker build was designed to be offline and keyless
+  because of that decision, and now needs a key. §9 carries a warning listing the three ways
+  out. This is settled, not an open question, unless the keyless build turns out to matter.
 - **The `deep` LLM tier maps to `gemini-3.5-flash`, same as `default`.** Every Gemini pro
   model returns 429 on the free tier, and free deployment is a hard constraint (§9). The tier
   seam stays so `LLM_MODEL_DEEP` can point a billed key at a pro model with no code change.
@@ -162,6 +202,26 @@ Unanswerable — the agent abstains with "I could not find this in the available
   is an M6 measurement, not a prompt-tuning exercise to do now.
 
 `pnpm lint` and `pnpm test` both pass clean. There is still no CI; it arrives in M6.
+
+### Dead ends — things already tried that did not work
+
+Recorded so nobody spends the hour again:
+
+- **`400 Tool choice is none, but model called a tool` (Groq gpt-oss) is not a schema problem.**
+  Retrying without `response_format` does *not* fix it — the retry fails identically. The cause
+  is prompt wording: a prose menu headed "Available tools" reads as function calling, and the
+  model emits a real tool call the request never declared. Rewording to "search targets …
+  labels to choose between, not functions to call" fixed it outright, with zero retries.
+- **A simplified reproduction will not trigger either Groq 400.** Both the tool-call error and
+  the schema-mismatch error only appear on the full prompts, with real evidence blocks and the
+  real tool menu. Reproduce with `pnpm capture:runs --force`, not a minimal script.
+- **Raising `LLM_MAX_RETRIES` makes quota errors worse, not better.** Every attempt counts
+  against the same budget: at 5 retries one synthesis call became six and exhausted the window
+  faster than not retrying. It is 2 deliberately. Failover, not persistence, is what survives
+  a quota wall.
+- **`GET /agent/runs/:runId` is not a substitute for fixtures during development.**
+  `AgentRunStore` is in-memory, so it empties on every dev-server restart. Use
+  `POST /agent/ask?demo=1` instead.
 
 ### Free-tier quota is a real constraint, not a footnote
 
@@ -256,7 +316,36 @@ RetrievalService.search(query, topK?, sourceFilter?)
 
 ---
 
-## 7. What to do next
+## 7. Build the UI against recorded runs, not live ones
+
+**A live run costs ~4 model calls against a free tier measured in tens per minute.** Iterating
+on layout against live runs burns quota within the hour, and it runs out mid-demo rather than
+mid-development. So `POST /agent/ask?demo=1` replays a recorded run instead — same route, same
+event stream, zero model calls.
+
+```bash
+curl localhost:5000/agent/demo          # what is available, with labels and durations
+curl -N -X POST 'localhost:5000/agent/ask?demo=1' -H 'Content-Type: application/json'   -d '{"question":"What did the board approve and what were the outcomes?"}'
+```
+
+Four fixtures in `fixtures/runs/`, chosen to cover every state the UI has to render — simple
+(no plan), multi-hop, second hop, and abstention. `pnpm capture:runs` re-records them against
+a live server; `--list` shows the catalogue without spending anything.
+
+Three things to know about it:
+
+- **A replay always emits `run_replayed` first**, carrying the slug, the true capture time, and
+  a reason. That is the honesty mechanism for PLAN.md §9's degraded demo — a recording cannot
+  present itself as live. Render a banner from it.
+- **`seq` and `ts` are re-stamped** to the replay, so elapsed-time maths works normally. The
+  original capture time is in `run_replayed.capturedAt`.
+- **Gaps longer than 2s are clamped**, so a replay is quicker than the original run without
+  losing its pacing — a 48s recording replays in about 7s.
+
+Fixtures reload when the files change, so `pnpm capture:runs` takes effect without a restart
+(`nest start --watch` watches `src/`, not `fixtures/`).
+
+## 8. What to do next
 
 **M2 — the UI** (PLAN.md §5). It is pure rendering: the event contract in
 `src/agent/events.ts` is frozen and every event a run emits is already flowing over SSE.
@@ -269,14 +358,31 @@ their evidence. Ship the one-click example questions — a visitor will not know
 
 `GET /agent/runs/:runId` returns a finished run for deep-links and replay.
 
+### Things the UI has to handle, because they will happen
+
+- **A run can fail mid-stream.** `run_failed` is a real event, not a theoretical one — free-tier
+  quota is the usual cause even with failover configured. Render it as a message, not a blank
+  screen. PLAN.md §9 wants a `?demo=1` recorded-run fallback with an honest banner; `GET
+  /agent/runs/:runId` already returns finished runs, so that is mostly wiring.
+- **`POST /agent/ask` has no rate limit and CORS is open to any origin** (`main.ts`). Both are
+  deliberate for local dev and both need revisiting before the endpoint is public — this is the
+  milestone where it becomes public.
+- **An answer can legitimately have zero citations** when the agent abstains. Do not treat an
+  empty `citations` array as an error state.
+- **`distance` is lower-is-better**, not a 0–1 score. Rendering it as a progress bar without
+  inverting it will show the best evidence as the weakest.
+
 ### Known gaps worth closing along the way
 
 - `token_delta` currently fires once with the whole synthesised answer. Real token streaming
-  needs an `LlmService.chatStream` method — the event is already in the contract.
+  needs an `LlmService.chatStream` method — the event is already in the contract, so the UI can
+  be written against per-token deltas today and get them for free later.
 - `AgentRunStore` is in-memory and capped at 100 runs. Durable tracing is M3.
-- The two unverified acceptance criteria in §4 above, when Ollama is available.
+- `RETRIEVAL_DISTANCE_THRESHOLD` is configured but **not enforced** — it must be re-derived for
+  the current embedding model first. See the comment in `src/config/env.schema.ts`.
+- `LLM_PROVIDER=ollama` is still unexercised, for lack of hardware.
 
-## 8. Working with this repo as an agent
+## 9. Working with this repo as an agent
 
 - Read the **section** of PLAN.md you need. It is ~1100 lines; do not read it whole.
 - Section index is in `CLAUDE.md`. Locked decisions are §11 — do not re-litigate them.

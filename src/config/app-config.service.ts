@@ -105,6 +105,10 @@ export class AppConfigService {
     return this.configService.get('KNOWLEDGE_PATH', { infer: true });
   }
 
+  get demoRunsPath(): string {
+    return this.configService.get('DEMO_RUNS_PATH', { infer: true });
+  }
+
   get promptsPath(): string {
     return this.configService.get('PROMPTS_PATH', { infer: true });
   }

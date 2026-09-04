@@ -20,6 +20,20 @@ import type {
  */
 export type AgentEvent =
   | { type: 'run_started'; runId: string; question: string }
+  /**
+   * Always the first event of a replayed run, never emitted by a live one.
+   *
+   * This is the honesty mechanism for PLAN.md §9's recorded-run fallback: a
+   * consumer cannot accidentally present a recording as a live run, because the
+   * recording announces itself before any of its events arrive.
+   */
+  | {
+      type: 'run_replayed';
+      slug: string;
+      question: string;
+      capturedAt: string;
+      reason: 'requested' | 'quota_exhausted';
+    }
   | { type: 'triage_done'; complexity: Complexity; reasoning: string }
   | { type: 'plan_created'; subQuestions: SubQuestion[] }
   | { type: 'tool_started'; subQuestionId: string; tool: string; input: string }

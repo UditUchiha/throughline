@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "corpus:generate": "node --env-file=.env -r ts-node/register scripts/corpus-generate.ts"
+    "corpus:generate": "node --env-file=.env -r ts-node/register scripts/corpus-generate.ts",
+    "capture:runs": "node --env-file=.env -r ts-node/register scripts/capture-runs.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",

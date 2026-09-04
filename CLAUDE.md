@@ -16,6 +16,8 @@ you need, not the whole file. Index below.
 | Tests | `pnpm test` |
 | Re-verify the corpus answer key | `pnpm corpus:generate --verify-only` (no model calls, seconds) |
 | Ask the agent | `curl -N -X POST localhost:5000/agent/ask -H 'Content-Type: application/json' -d '{"question":"..."}'` |
+| Replay a recorded run (no model calls) | same, with `?demo=1` — see `GET /agent/demo` for what is available |
+| Re-record the demo fixtures | `pnpm capture:runs` (server must be running; `--list` to inspect, `--force` to re-capture) |
 | Regenerate corpus docs for one fact | `pnpm corpus:generate --only=fact.<id>` (needs `GEMINI_API_KEY`) |
 
 Node 22+, pnpm. Local Ollama on `:11434` is required for embeddings and chat
@@ -73,6 +75,8 @@ src/repositories/ ports/ (interfaces + DI tokens) and sqlite/ (adapters)
 src/knowledge/    markdown loader, chunker, idempotent indexing service
 src/rag/          RetrievalService — vector search over sqlite-vec
 src/agent/        LangGraph graph: state, nodes, tools, frozen event contract, SSE controller
+src/agent/replay/ recorded runs replayed over SSE — the §9 demo fallback, and free UI iteration
+fixtures/runs/    captured agent runs (committed); written by `pnpm capture:runs`
 src/ai/, src/embeddings/  Ollama chat + embedding clients
 corpus/           ledger (ground truth) + generated documents + questions
 evals/            eval harness (generalized in M6; currently empty)

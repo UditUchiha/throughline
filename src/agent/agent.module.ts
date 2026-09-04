@@ -5,6 +5,7 @@ import { RagModule } from '../rag/rag.module';
 import { AgentController } from './agent.controller';
 import { AgentGraphService } from './agent-graph.service';
 import { AgentRunStore } from './agent-run.store';
+import { RunReplayService } from './replay/run-replay.service';
 import { ExecuteNode } from './nodes/execute.node';
 import { PlanNode } from './nodes/plan.node';
 import { ReflectNode } from './nodes/reflect.node';
@@ -24,6 +25,7 @@ import { ToolRegistry } from './tools/tool-registry';
   controllers: [AgentController],
   providers: [
     AgentRunStore,
+    RunReplayService,
     MailSearchTool,
     ChatSearchTool,
     NotesSearchTool,

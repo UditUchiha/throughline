@@ -67,9 +67,15 @@ export class ReflectNode {
       return { hops: nextHop, events };
     }
 
+    // "Available tools" reads as function-calling to models trained for it:
+    // Groq's gpt-oss emitted an actual tool call here and the request was rejected
+    // with "Tool choice is none, but model called a tool", because we declare no
+    // tools. Naming them as *values to select* rather than functions to invoke is
+    // what makes this prompt portable across providers.
     const system = `You review whether retrieved evidence is sufficient to answer a question.
 
-Available tools for follow-up searches:
+Search targets you may name in your JSON output. These are labels to choose between, not
+functions to call — never emit a tool call, only JSON:
 ${this.tools.describeForPlanner()}
 
 Say a gap exists only when a *material* part of the question is still unsupported — a missing
@@ -80,7 +86,7 @@ answer; an unnecessary extra hop costs the user several seconds.
 If evidence genuinely shows the answer is not present in these sources at all, that is not a
 gap either — it is an answer, and the next stage will say so.
 
-Propose at most 2 follow-ups. Use only the tool names listed above. Reply with JSON only.`;
+Propose at most 2 follow-ups. Use only the target names listed above. Reply with JSON only.`;
 
     const user = [
       `Question: ${state.question}`,

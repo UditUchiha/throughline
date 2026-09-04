@@ -27,6 +27,7 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M1.3 — the agent graph** | ✅ Done | LangGraph `StateGraph`: triage → (plan) → execute → reflect ↺ → synthesize. Tool registry with `mail_search` / `chat_search` / `notes_search` / `all_sources_search`. |
 | **M1.4 — streaming HTTP surface** | ✅ Done | `POST /agent/ask` (SSE) and `GET /agent/runs/:runId`. Event contract frozen in `src/agent/events.ts`. CORS enabled. |
 | **Provider failover** | ✅ Done | Pulled forward from §9 because free-tier quota was killing ~half of all runs. `LLM_FALLBACK_PROVIDERS` + `FailoverLlmService`. |
+| **Recorded-run replay** | ✅ Done | Also pulled forward from §9. `POST /agent/ask?demo=1` replays a fixture; `GET /agent/demo` lists them; `pnpm capture:runs` records them. Lets M2 be built without spending quota, and is the degraded-demo path. |
 | **M2–M6** | ⬜ Not started | **M2 (UI) is the next task.** Unchanged from the plan below. |
 
 > [!NOTE]
@@ -82,8 +83,11 @@ in history). Local dev on Windows, pnpm, Node 22.
 
 **Decisions locked since authoring** (do not re-litigate — see §11):
 - §11.1 Project name: `throughline`.
-- §11.4 Default embedding provider: **local in-process** (`fastembed` / `bge-small-en-v1.5`,
-  384d), *not* Gemini. This is what keeps the Docker build in §9 offline and keyless.
+- §11.3 Default chat provider: **Gemini primary, Groq fallback** (locked 2026-09-04). Groq was
+  primary for a day; see §11.3 for the measurements that reversed it.
+- §11.4 Default embedding provider: **Gemini** (`gemini-embedding-001`, 768d). The original
+  "local in-process" lock was superseded 2026-09-04; the local provider was never written.
+  This forfeits §9's offline, keyless Docker build — see the warning there.
 - §11.2 Corpus setting: accepted as "Lumen Labs" — see §6 and the anti-goal in §2 about
   swapping it for a public dataset.
 
@@ -499,9 +503,17 @@ the provider switch so the seam is visible.
 
 #### M1.2 — Embedding provider + index identity
 
-**Default provider decided: local in-process, not Gemini** (§11.4). This is the one place
-where "which cloud key" and "how the free deploy behaves" are the same decision, so the
-reasoning is worth stating precisely.
+> [!NOTE]
+> **Superseded.** This subsection was written when §11.4 fixed the default embedding provider
+> to local in-process. It shipped as Gemini instead (`gemini-embedding-001`, 768d) and the
+> local provider was never written. The `fastembed` guidance below is kept because it is still
+> the recipe if the keyless build is ever wanted back (§9, option 3) — but it describes a road
+> not taken, not the code. **What did ship: the `EmbeddingProvider` interface, the Gemini and
+> Ollama implementations, and the `index_meta` identity check**, which is the durable part.
+
+**Original rationale, retained for the reversal case:** this is the one place where "which
+cloud key" and "how the free deploy behaves" are the same decision, so the reasoning is worth
+stating precisely.
 
 Add dependency: `fastembed` (or `@xenova/transformers` — pick whichever has the smoother
 Node/Docker story at implementation time; both run ONNX models in-process with no daemon and
@@ -1000,14 +1012,22 @@ instant boot.
 #          EXPOSE 7860 (Hugging Face Spaces default)
 ```
 
-Because §11.4 fixed the default embedding provider to **local in-process** (`fastembed` /
-`bge-small-en-v1.5`), `corpus-index.js` needs **no network access and no secret at build
-time** — it is a pure ONNX inference pass inside the builder container. This is the direct
-payoff of that decision: no Docker build secret to configure on Hugging Face Spaces, no
-build-time rate-limit risk on ~360 documents, and the build is reproducible offline. If the
-model weights need to be fetched during the build (rather than committed or pulled from a
-prior layer), that fetch is a one-time, keyless download from the model host — not an LLM
-API call — so it doesn't compete with any provider's request quota.
+> [!WARNING]
+> **The keyless build described here no longer holds.** §11.4 originally fixed the default
+> embedding provider to local in-process, which made the index build a pure offline ONNX pass:
+> no Docker build secret, no build-time rate-limit risk, reproducible without a network. That
+> decision was superseded on 2026-09-04 — embeddings default to Gemini and the local provider
+> was never written — so building the index now needs a key and ~169 network calls.
+>
+> Three ways out, to choose between when this milestone is actually built:
+>
+> 1. **Build secret on Hugging Face Spaces.** Simplest to write, but reintroduces a secret to
+>    configure and build-time quota risk on the embedding provider.
+> 2. **Ship a pre-built `database/app.db`.** Built locally or in CI and copied into the image;
+>    keyless at build time, but it is a binary artifact and currently gitignored, so it needs a
+>    home (a release asset, or LFS).
+> 3. **Write the local provider after all**, restoring the original story at the cost of one
+>    dependency and a full reindex. See §11.4.
 
 ### Targets
 
@@ -1017,7 +1037,8 @@ API call — so it doesn't compete with any provider's request quota.
 | Frontend | **Vercel** free | `NEXT_PUBLIC_API_URL` → Space URL |
 | Persistent memory writes (M4+) | **Turso** free (libSQL) or **Qdrant Cloud** free | Turso is SQLite-compatible → smallest diff from `better-sqlite3` |
 | Tracing | **LangSmith** free personal tier | |
-| Inference (chat) | Gemini free tier (default), Groq free (`fast` tier) | Embeddings are local in-process (§11.4) — not part of this quota at all |
+| Inference (chat) | **Groq free tier (default), Gemini free as fallback** (§11.3) | One agent run costs ~4 calls; `FailoverLlmService` crosses providers on quota |
+| Inference (embeddings) | Gemini free tier (§11.4) | Superseded the local-in-process plan, so embeddings **do** consume quota and need a key at index-build time |
 
 **Two warnings:**
 - **Do not run the agent loop on Vercel serverless.** Function timeouts will kill 30–90s
@@ -1101,18 +1122,35 @@ Decided items are marked ✅. Remaining items resolve before or during M0, with 
 
 1. ✅ **Project name: `throughline`.** Locked 2026-08-04. Used everywhere in this document —
    `package.json`, repo name, README, deployed URLs.
-2. **Corpus setting.** "Lumen Labs" is a suggestion. Any fictional company works; the schema
-   matters, the theme does not. *Recommendation: accept and move on — this is not worth
-   deliberating.*
-3. **Default chat provider.** *Recommendation: Gemini free tier* — best free-tier chat
-   quality, one key. Groq as the `fast` tier (routing/triage/sub-question generation).
-4. ✅ **Default embedding provider: local in-process.** Locked 2026-08-04. A JS-native model
-   (e.g. `bge-small-en-v1.5` via `fastembed-js` or `@xenova/transformers`, 384d) runs inside
-   the Node process — no API key, no daemon, no network call, at build time or runtime. This
-   is what keeps the Docker deploy in §9 genuinely simple: the index bakes into the image
-   fully offline. Gemini and Ollama embedding providers are still implemented behind the
-   `EmbeddingProvider` interface (the "switchable" claim needs at least one alternative to be
-   true), but neither is the default. See M1.2 for the concrete change this implies.
+2. ✅ **Corpus setting: "Lumen Labs".** Accepted 2026-08-04. Any fictional company would do;
+   the schema matters, the theme does not. See the anti-goal in §2 about swapping it for a
+   public dataset.
+3. ✅ **Default chat provider: Gemini primary, Groq fallback.** Locked 2026-09-04. Configure
+   with `LLM_PROVIDER=gemini` and `LLM_FALLBACK_PROVIDERS=groq`.
+
+   Groq was briefly made primary for a day, on the argument that Gemini's free tier (~20
+   requests per window per model, against ~4 calls per agent run) could not sustain
+   development. Two things retired that argument:
+   - The recorded-run replay (`?demo=1`) means UI work spends no quota at all, which was the
+     actual reason to want a bigger budget.
+   - Capturing runs on both showed what Groq costs: **fewer citations** — 2 vs 5 on the same
+     multi-hop question, and 0 vs 1 on a simple one — and 26–48s runs against Gemini's ~10s,
+     because `gpt-oss` reflects on roughly 3 of 4 questions where Gemini does on 3 of 30, and
+     its per-call latency swings between 0.35s and 19.7s.
+
+   Citation density is the project's core claim, so trading it for headroom the fixtures
+   already provide is the wrong trade. The quota risk is real but bounded: a visitor asks one
+   question at a time, and `FailoverLlmService` drops to Groq when Gemini refuses.
+4. ⚠️ **Default embedding provider — superseded 2026-09-04.** Originally locked as local
+   in-process (`bge-small-en-v1.5`, 384d). In practice the default is **Gemini**
+   (`gemini-embedding-001`, 768d): the local provider was never written, and `local` is not
+   even a value in `EMBEDDING_PROVIDER`'s enum. The corpus is indexed against Gemini, and the
+   `index_meta` identity guard makes a later swap fail loudly rather than silently.
+
+   **The cost of this reversal is real and it lands in §9.** The original decision existed to
+   keep the Docker build offline and keyless; that property is forfeited while embeddings need
+   an API key. See the warning in §9 for the three ways out. Reopen this if the keyless build
+   turns out to matter more than the convenience.
 5. **Anthropic support.** Owner has a key but prefers not to spend it. *Recommendation: leave
    the seam, do not implement. It is 30 minutes whenever it is wanted.*
 6. **Turso vs. Qdrant for M4 persistence.** *Recommendation: defer to M4. Turso if the

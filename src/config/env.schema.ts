@@ -55,6 +55,9 @@ export const envSchema = z
     DATABASE_PATH: z.string().min(1).default('./database/app.db'),
     KNOWLEDGE_PATH: z.string().min(1).default('./corpus/generated'),
     PROMPTS_PATH: z.string().min(1).default('./prompts'),
+    // Recorded agent runs, replayed over SSE for the §9 demo fallback and for
+    // building the UI without spending model calls. Written by `pnpm capture:runs`.
+    DEMO_RUNS_PATH: z.string().min(1).default('./fixtures/runs'),
 
     // --- Indexing ---
     REINDEX_INTERVAL_MS: z.coerce
