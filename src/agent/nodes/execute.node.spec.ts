@@ -6,7 +6,13 @@ import type { EmittedAgentEvent } from '../events';
 import type { AgentState } from '../state';
 import type { AgentTool } from '../tools/agent-tool';
 import { ToolRegistry } from '../tools/tool-registry';
+import { LangSmithTracing } from '../../observability/langsmith-tracing.service';
+import type { AppConfigService } from '../../config/app-config.service';
 import { ExecuteNode } from './execute.node';
+
+/** Tracing off, so traceTool hands the retrieval function straight back. */
+const noTracing = (): LangSmithTracing =>
+  new LangSmithTracing({ langsmithTracing: false } as AppConfigService);
 
 interface CallLog {
   tool: string;
@@ -55,6 +61,9 @@ function graphConfig(signal?: AbortSignal): {
     counter: { seq: 0 },
     usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     models: [],
+    spans: [],
+    rootSpanId: 'span-root',
+    activeNodeSpanId: null,
   };
   return { config: { configurable: { [AGENT_RUN_CONTEXT]: context } }, emitted };
 }
@@ -84,7 +93,7 @@ describe('ExecuteNode', () => {
     const { config } = graphConfig();
 
     const started = Date.now();
-    await new ExecuteNode(registry).run(
+    await new ExecuteNode(registry, noTracing()).run(
       state([
         { id: 'sq1', text: 'a', tool: 'mail_search', status: 'pending', hop: 0 },
         { id: 'sq2', text: 'b', tool: 'chat_search', status: 'pending', hop: 0 },
@@ -109,7 +118,7 @@ describe('ExecuteNode', () => {
       timedTool('chat_search', 10, log, 2),
     ]);
 
-    await new ExecuteNode(registry).run(
+    await new ExecuteNode(registry, noTracing()).run(
       state([
         { id: 'sq1', text: 'a', tool: 'mail_search', status: 'pending', hop: 0 },
         {
@@ -132,7 +141,7 @@ describe('ExecuteNode', () => {
     const registry = new ToolRegistry([timedTool('mail_search', 1, [], 7)]);
     const { config, emitted } = graphConfig();
 
-    const update = await new ExecuteNode(registry).run(
+    const update = await new ExecuteNode(registry, noTracing()).run(
       state([{ id: 'sq1', text: 'a', tool: 'mail_search', status: 'pending', hop: 0 }]),
       config,
     );
@@ -147,7 +156,7 @@ describe('ExecuteNode', () => {
     const log: CallLog[] = [];
     const registry = new ToolRegistry([timedTool('mail_search', 1, log, 1)]);
 
-    await new ExecuteNode(registry).run(
+    await new ExecuteNode(registry, noTracing()).run(
       state([
         { id: 'sq1', text: 'a', tool: 'mail_search', status: 'done', hop: 0 },
         { id: 'sq2', text: 'b', tool: 'mail_search', status: 'pending', hop: 1 },
@@ -170,7 +179,7 @@ describe('ExecuteNode', () => {
     ]);
 
     const { config, emitted } = graphConfig();
-    const update = await new ExecuteNode(registry).run(
+    const update = await new ExecuteNode(registry, noTracing()).run(
       state([
         { id: 'sq1', text: 'a', tool: 'mail_search', status: 'pending', hop: 0 },
         { id: 'sq2', text: 'b', tool: 'chat_search', status: 'pending', hop: 0 },
@@ -202,6 +211,7 @@ describe('ExecuteNode', () => {
 
     const update = await new ExecuteNode(
       new ToolRegistry([timedTool('mail_search', 1, [], 1)]),
+      noTracing(),
     ).run(
       state([{ id: 'sq1', text: 'a', tool: 'nope_search', status: 'pending', hop: 1 }]),
       config,
@@ -220,7 +230,7 @@ describe('ExecuteNode', () => {
     const controller = new AbortController();
     controller.abort();
 
-    const update = await new ExecuteNode(registry).run(
+    const update = await new ExecuteNode(registry, noTracing()).run(
       state([{ id: 'sq1', text: 'a', tool: 'mail_search', status: 'pending', hop: 0 }]),
       graphConfig(controller.signal).config,
     );

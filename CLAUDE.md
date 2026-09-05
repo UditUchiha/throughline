@@ -79,6 +79,7 @@ src/rag/          RetrievalService — vector search over sqlite-vec
 src/agent/        LangGraph graph: state, nodes, tools, frozen event contract, SSE controller
 src/agent/replay/ recorded runs replayed over SSE — the §9 demo fallback, and free UI iteration
 src/agent/examples/ corpus/questions.yaml projected for the UI's one-click examples
+src/observability/ LangSmith bridge, TraceCollector (span tree), UsageService (cost)
 ui/               Next.js UI — its own package and toolchain, deployed separately
 fixtures/runs/    captured agent runs (committed); written by `pnpm capture:runs`
 src/ai/, src/embeddings/  Ollama chat + embedding clients
@@ -129,9 +130,23 @@ Three UI traps worth not re-learning:
 
 ## Known state
 
-M0, M1 and M2 are done: retrieval is proven end-to-end (169/169 documents indexed, live
-agent runs producing cited answers), the agent is reachable at `POST /agent/ask` (SSE), and
-`ui/` renders the stream. M3 (observability) is next.
+M0–M3 are done: retrieval is proven end-to-end (169/169 documents indexed, live agent runs
+producing cited answers), the agent is reachable at `POST /agent/ask` (SSE), `ui/` renders
+the stream, and runs are traced twice — into sqlite (`runs` + `run_spans`, bounded by
+`TRACE_RETENTION_RUNS`) and, when a key is set, to LangSmith. Both show a node → tool → model
+tree; each run carries token counts and an estimated cost. M4 (memory) is next.
+
+Three things about tracing worth knowing before touching it:
+
+- **`?demo=1` writes no trace, by design.** A replay does not run the graph, so it is not a
+  run. Verifying the trace store needs a live call.
+- **LangGraph's auto-tracing covers neither model calls nor tools.** Model calls go through
+  the raw `openai` SDK and tools are plain functions, so those two levels of a LangSmith
+  trace exist only because `LangSmithTracing.wrapClient` and `.traceTool` supply them.
+  Removing either loses a level silently.
+- **`LANGSMITH_ENDPOINT` must match the account's region** (US / EU / APAC). A mismatch 403s
+  every authenticated call while unauthenticated ones still return 200, so it presents as a
+  bad key rather than a wrong host.
 
 Still open: `LLM_PROVIDER=ollama` has never been exercised; `POST /agent/ask` has no rate
 limit and CORS is open to any origin, which needs revisiting before deployment; and a full

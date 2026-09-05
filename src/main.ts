@@ -12,6 +12,10 @@ async function bootstrap() {
   // there is no sign-in — so a permissive origin is the honest configuration.
   app.enableCors({ origin: true });
 
+  // Lets LangSmithTracing flush whatever traces are still batched on the way out.
+  // Without this the last run before a Ctrl-C is the one that never shows up.
+  app.enableShutdownHooks();
+
   const config = app.get(AppConfigService);
   await app.listen(config.port);
 }

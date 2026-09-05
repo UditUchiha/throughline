@@ -52,6 +52,9 @@ function graphConfig(): { config: LangGraphRunnableConfig; emitted: EmittedAgent
     counter: { seq: 0 },
     usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     models: [],
+    spans: [],
+    rootSpanId: 'span-root',
+    activeNodeSpanId: null,
   };
   return { config: { configurable: { [AGENT_RUN_CONTEXT]: context } }, emitted };
 }

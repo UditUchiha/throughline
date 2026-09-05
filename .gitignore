@@ -2,9 +2,14 @@ node_modules/
 dist/
 coverage/
 
-.env
-.env.local
-.env*.local
+# Deny-by-default: any local env file is ignored, and .env.example is the single
+# exception because it is the documented template and carries no secrets. The
+# narrow rules this replaces (.env, .env.local, .env*.local) did not cover a
+# stray copy — .env.bak, .env.old, .env.apac — which would sit untracked but
+# unignored, one `git add -A` from putting a real key in a public commit.
+# Widened 2026-09-05, before that happened rather than after.
+.env*
+!.env.example
 
 database/*.db
 database/*.db-journal

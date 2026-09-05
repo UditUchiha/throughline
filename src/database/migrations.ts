@@ -44,6 +44,51 @@ export function runMigrations(db: Database.Database, embeddingDimensions: number
     );
   `);
 
+  // --- Trace store (PLAN.md §5/M3.2) ---
+  //
+  // Runs and their spans, replacing the in-memory store M1 used to back
+  // `GET /agent/runs/:runId`. Payloads that are only ever read back whole — the
+  // event stream, the answer, the model list — are stored as JSON text rather than
+  // shredded into columns: nothing queries inside them, and a schema for them would
+  // have to be kept in step with a frozen event contract for no gain.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runs (
+      run_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      question TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('finished', 'failed')),
+      answer_json TEXT,
+      citations_json TEXT NOT NULL,
+      events_json TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      -- Nullable on purpose: an unpriced model makes a run cost unknown, which is
+      -- a different fact from costing zero. See src/config/model-prices.ts.
+      cost_usd REAL,
+      latency_ms INTEGER NOT NULL,
+      models_json TEXT NOT NULL,
+      error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS run_spans (
+      span_id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+      parent_span_id TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('run', 'node', 'tool', 'llm')),
+      started_at TEXT NOT NULL,
+      ended_at TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      error TEXT,
+      attributes_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_run_spans_run_id ON run_spans(run_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at DESC);
+  `);
+
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
       chunk_id INTEGER PRIMARY KEY,

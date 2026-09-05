@@ -5,6 +5,8 @@ import { createEmitter, getRunContext } from '../agent-run-context';
 import { mintEvidenceId } from '../citations';
 import type { AgentState, AgentStateUpdate } from '../state';
 import { ToolRegistry } from '../tools/tool-registry';
+import type { AgentToolInput } from '../tools/agent-tool';
+import { LangSmithTracing } from '../../observability/langsmith-tracing.service';
 
 interface SubQuestionOutcome {
   subQuestion: SubQuestion;
@@ -21,7 +23,10 @@ interface SubQuestionOutcome {
 export class ExecuteNode {
   private readonly logger = new Logger(ExecuteNode.name);
 
-  constructor(private readonly tools: ToolRegistry) {}
+  constructor(
+    private readonly tools: ToolRegistry,
+    private readonly tracing: LangSmithTracing,
+  ) {}
 
   async run(state: AgentState, config: LangGraphRunnableConfig): Promise<AgentStateUpdate> {
     const { emit, events } = createEmitter(config);
@@ -119,7 +124,12 @@ export class ExecuteNode {
     const start = Date.now();
 
     try {
-      const chunks = await tool.execute({ query: subQuestion.text, signal });
+      // Wrapped so the retrieval shows up under this node in a LangSmith trace;
+      // returns `tool.execute` itself when tracing is off.
+      const execute = this.tracing.traceTool(tool.name, (input: AgentToolInput) =>
+        tool.execute(input),
+      );
+      const chunks = await execute({ query: subQuestion.text, signal });
       const evidence: Evidence[] = chunks.map((chunk) => ({
         evidenceId: mintEvidenceId(chunk.chunkId),
         docId: chunk.docId,

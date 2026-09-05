@@ -5,7 +5,7 @@ Orientation document for a new agent or contributor picking this project up cold
 acceptance criteria; `CLAUDE.md` is the always-loaded rules digest. This file tells you
 where you are, what has actually been proven, and what to do next.
 
-_Last updated: 2026-09-04 (M2 complete — the UI renders the stream; M3 is next)._
+_Last updated: 2026-09-05 (M3 built — runs are traced, stored and costed; M4 is next)._
 
 ---
 
@@ -114,8 +114,9 @@ hook auto-runs `pnpm corpus:generate --verify-only` on ledger edits.
 | Provider failover | ✅ | Pulled forward from §9 — free-tier quota was killing ~half of all runs. `gemini → groq` chain, verified live. |
 | Lint / typecheck | ✅ | `pnpm lint`, bare `npx eslint .`, and `npx tsc --noEmit` all exit 0. 68 tests across 9 suites, plus 11 in `ui/` (which has its own ESLint — `next lint` was removed in Next 16). |
 | **M2 UI** | ✅ | `ui/` — Next.js App Router + Tailwind, pure rendering over the frozen event contract. All seven panels; `?demo=1` replays with zero model calls. |
-| **M3 observability** | ⬜ **← next task** | LangSmith, a local trace store, cost/token accounting. See PLAN.md §5. |
-| M4 memory · M5 MCP · M6 evals+CI | ⬜ | See PLAN.md §5. |
+| **M3 observability** | ✅ | Local trace store, cost accounting and LangSmith, all verified live. Planner → tool → LLM confirmed on a real second-hop trace, [shared publicly](https://apac.smith.langchain.com/public/14204394-ae03-4e47-afb0-8ada1c2dd735/r/01a06fe7-641a-700e-8d18-34e5efc77473) and linked from the README. |
+| **M4 memory** | ⬜ **← next task** | See PLAN.md §5. |
+| M5 MCP · M6 evals+CI | ⬜ | See PLAN.md §5. |
 
 ### What a live run actually does (verified 2026-09-02)
 
@@ -224,13 +225,29 @@ Recorded so nobody spends the hour again:
 - **A simplified reproduction will not trigger either Groq 400.** Both the tool-call error and
   the schema-mismatch error only appear on the full prompts, with real evidence blocks and the
   real tool menu. Reproduce with `pnpm capture:runs --force`, not a minimal script.
+- **LangGraph's auto-tracing traces neither the model calls nor the tools.** It is easy to
+  set the `LANGSMITH_*` variables, see a trace appear, and conclude M3.1 is done — but that
+  trace stops at the graph node. Model calls go through the raw `openai` SDK rather than a
+  LangChain chat model, and the retrieval tools are plain functions; LangGraph knows about
+  neither. The lower two levels exist only because `LangSmithTracing.wrapClient` wraps each
+  provider's client with `wrapOpenAI` and `.traceTool` wraps each retrieval as a
+  `retriever` run. Remove either and the hierarchy silently loses a level.
+- **A LangSmith key is bound to a region, and a mismatch is indistinguishable from a bad
+  key.** `LANGSMITH_ENDPOINT` defaults to US. An APAC (or EU) account's key gets a bare
+  `403 Forbidden` from the US endpoint on *every* authenticated call — ingestion, project
+  listing, key introspection — while unauthenticated endpoints like `/info` still return
+  200, and the key's "Last Used At" in the UI never populates. It cost an hour on
+  2026-09-05, chasing plan entitlement and workspace scoping, before the region was the
+  answer. Regions: US `api.smith.langchain.com`, EU `eu.api.smith.langchain.com`,
+  APAC `apac.api.smith.langchain.com`.
 - **Raising `LLM_MAX_RETRIES` makes quota errors worse, not better.** Every attempt counts
   against the same budget: at 5 retries one synthesis call became six and exhausted the window
   faster than not retrying. It is 2 deliberately. Failover, not persistence, is what survives
   a quota wall.
-- **`GET /agent/runs/:runId` is not a substitute for fixtures during development.**
-  `AgentRunStore` is in-memory, so it empties on every dev-server restart. Use
-  `POST /agent/ask?demo=1` instead.
+- **`GET /agent/runs/:runId` was not a substitute for fixtures during development** —
+  `AgentRunStore` was in-memory and emptied on every dev-server restart. M3 made it durable,
+  so a run id now survives a restart. `POST /agent/ask?demo=1` is still what you want while
+  iterating, because it costs nothing; the trace store costs a model call to populate.
 
 ### Free-tier quota is a real constraint, not a footnote
 
@@ -431,10 +448,16 @@ ui/app/page.tsx          the only stateful component
 
 ## 9. What to do next
 
-**M3 — observability** (PLAN.md §5). LangSmith tracing, a local trace store to replace the
-in-memory `AgentRunStore`, and cost/token accounting. The `models` field added in M2 is the
-first thread of that last one: the token counts are already there, and a per-model price
-table is what turns `costUsd: null` into a number.
+**M4 — memory** (PLAN.md §5). M3 is complete and closed out:
+
+- `runs` + `run_spans` in sqlite behind a `TraceRepository` port, bounded by
+  `TRACE_RETENTION_RUNS`, capturing failed runs as well as successful ones.
+- Per-call cost from `src/config/model-prices.ts`, prices verified against provider pages.
+- LangSmith tracing verified live, with the public trace linked from the README.
+
+Read that trace before starting M4 — it is the fastest way to see the graph's actual shape,
+including the second hop:
+https://apac.smith.langchain.com/public/14204394-ae03-4e47-afb0-8ada1c2dd735/r/01a06fe7-641a-700e-8d18-34e5efc77473
 
 ### Known gaps worth closing along the way
 
@@ -450,7 +473,37 @@ table is what turns `costUsd: null` into a number.
 - `token_delta` still fires once with the whole synthesised answer. Real token streaming needs
   an `LlmService.chatStream`; the UI already accumulates deltas, so it gets per-token rendering
   for free the day that lands.
-- `AgentRunStore` is in-memory and capped at 100 runs. Durable tracing is M3.
+- ~~`AgentRunStore` is in-memory and capped at 100 runs.~~ Closed in M3 — runs and spans go
+  to sqlite, and failed runs are captured too, which the in-memory store never did.
+- **§9 still needs a decision about the baked image.** `TRACE_RETENTION_RUNS` bounds the
+  table, but a bounded set of *your development questions* still ships inside
+  `database/app.db`. Either clear the trace tables when baking, or accept it.
+- ~~`POST /agent/ask` does not stop the run when the client hangs up.~~ Fixed 2026-09-05, and
+  the cause is worth keeping: **`request.on('close')` is not a disconnect signal.** Since Node
+  16 an `IncomingMessage` emits `close` when the request stream *completes* — i.e. the moment
+  the JSON body has been read — so it fired ~2ms into every run. That went unnoticed for a
+  second reason: it aborted the caller signal before `AgentGraphService.run()` subscribed to
+  it, and `addEventListener` never fires for an event that already happened, so the graph
+  ignored it. Two bugs, each hiding the other; fixing only the second would have made *every*
+  run abort instantly. The controller now listens on `response`, which emits `close` when the
+  socket actually goes away, and the graph checks `signal.aborted` before subscribing. Both
+  halves are covered in `agent-graph.service.spec.ts` under "cancellation".
+
+  Measured after the fix, and the pair is what makes it convincing: a run whose client hung
+  up at 3s died at **3005ms** (reflect 1ms, synthesize 2ms — the drain collapsing), while a
+  run whose client stayed connected was untouched by it and ran the full **60s** budget
+  before the *timeout* aborted a stalled synthesis. A premature `close` would have killed
+  the second one at ~0ms.
+- ~~The trace store has no retention bound.~~ Fixed 2026-09-05: `TRACE_RETENTION_RUNS`
+  (default 200) prunes oldest-first inside the same transaction as the insert, with
+  `run_spans` following via `ON DELETE CASCADE`.
+- **CLAUDE.md's published `process.env` grep now returns hits.** `src/observability/
+  langsmith-tracing.service.ts` *writes* `LANGSMITH_*` back into the environment for
+  LangGraph and the LangSmith wrapper, which read it themselves; every value comes from
+  `AppConfigService` and every variable is declared in `env.schema.ts` first, so the rule (no
+  *reads* outside `src/config`) holds. `src/logger/logger.module.ts` reads `NODE_ENV`
+  directly and is a genuine long-standing hit. M6's CI gate needs a read-only pattern or an
+  explicit exemption for these two, or it lands red on day one.
 - `RETRIEVAL_DISTANCE_THRESHOLD` is configured but **not enforced** — it must be re-derived for
   the current embedding model first. See the comment in `src/config/env.schema.ts`.
 - `LLM_PROVIDER=ollama` is still unexercised, for lack of hardware.

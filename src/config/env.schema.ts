@@ -3,6 +3,16 @@ import { z } from 'zod';
 const llmProviderEnum = z.enum(['gemini', 'groq', 'openrouter', 'ollama']).default('gemini');
 const embeddingProviderEnum = z.enum(['gemini', 'ollama']).default('gemini');
 
+// `z.coerce.boolean()` is not usable for env flags: it follows JS truthiness, so the
+// string "false" coerces to `true`. Enumerating the accepted spellings instead means a
+// typo fails at boot with a readable message rather than silently enabling something.
+const envBoolean = z
+  .string()
+  .default('false')
+  .transform((raw) => raw.trim().toLowerCase())
+  .pipe(z.enum(['true', 'false', '1', '0']))
+  .transform((value) => value === 'true' || value === '1');
+
 export const envSchema = z
   .object({
     PORT: z.coerce.number().int().positive().default(5000),
@@ -100,9 +110,38 @@ export const envSchema = z
       .int()
       .positive()
       .default(60 * 1000),
+
+    // --- Observability (PLAN.md §5/M3) ---
+
+    // LangGraph and the LangSmith OpenAI wrapper both read these from `process.env`
+    // themselves, so `LangSmithTracing` copies them back out of here at boot. They are
+    // declared in this schema anyway — that is what keeps §0.3's "no process.env outside
+    // src/config" true rather than nominally true, and it means a malformed value fails
+    // at boot instead of silently disabling tracing.
+    // How many finished runs the local trace store keeps. Oldest are pruned on
+    // write. There is deliberately no "unlimited": the in-memory store this
+    // replaced was capped at 100 and emptied on restart, so making it durable
+    // without a bound would have quietly turned a bounded buffer into a log that
+    // grows forever — and §9 bakes `database/app.db` into the deployed image, so
+    // whatever accumulated during development would ship with it. A run costs
+    // roughly 25–50KB here, almost all of it the evidence text carried on
+    // `evidence_added`, so 200 is a handful of megabytes at worst.
+    TRACE_RETENTION_RUNS: z.coerce.number().int().positive().default(200),
+
+    LANGSMITH_TRACING: envBoolean,
+    LANGSMITH_API_KEY: z.string().optional(),
+    LANGSMITH_PROJECT: z.string().min(1).default('throughline'),
+    LANGSMITH_ENDPOINT: z.url().default('https://api.smith.langchain.com'),
   })
   .refine((env) => env.CHUNK_OVERLAP < env.CHUNK_SIZE, {
     message: 'CHUNK_OVERLAP must be smaller than CHUNK_SIZE',
+  })
+  // Tracing without a key is the failure mode worth catching at boot: LangSmith's
+  // client drops traces silently when it cannot authenticate, so the symptom is an
+  // empty project half an hour later rather than an error at the call site.
+  .refine((env) => !env.LANGSMITH_TRACING || Boolean(env.LANGSMITH_API_KEY), {
+    message: 'LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY is not set',
+    path: ['LANGSMITH_API_KEY'],
   });
 
 export type EnvConfig = z.infer<typeof envSchema>;

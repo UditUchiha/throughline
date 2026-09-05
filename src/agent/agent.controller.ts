@@ -2,18 +2,20 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Logger,
   NotFoundException,
   Param,
   Post,
   Query,
-  Req,
   Res,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { AgentGraphService } from './agent-graph.service';
-import { AgentRunStore, type RecordedRun } from './agent-run.store';
+import { TRACE_REPOSITORY } from '../repositories/ports/tokens';
+import type { TraceRepository } from '../repositories/ports/trace.repository';
+import type { PersistedRun, RunSpan } from '../common/types/trace.types';
 import { askRequestSchema, type AskRequest } from './dto/ask.dto';
 import type { EmittedAgentEvent } from './events';
 import { RunReplayService } from './replay/run-replay.service';
@@ -27,7 +29,7 @@ export class AgentController {
 
   constructor(
     private readonly graph: AgentGraphService,
-    private readonly runs: AgentRunStore,
+    @Inject(TRACE_REPOSITORY) private readonly traces: TraceRepository,
     private readonly replay: RunReplayService,
     private readonly examples: ExampleQuestionsService,
   ) {}
@@ -50,15 +52,23 @@ export class AgentController {
   async ask(
     @Body(new ZodValidationPipe(askRequestSchema)) body: AskRequest,
     @Query('demo') demo: string | undefined,
-    @Req() request: Request,
     @Res() response: Response,
   ): Promise<void> {
-    const startedAt = new Date().toISOString();
     const write = this.openEventStream(response);
 
     // A visitor who closes the tab should stop costing model calls immediately.
+    //
+    // This listens on the *response*, not the request. `request.on('close')` looks
+    // like the right hook and is not: since Node 16 an `IncomingMessage` emits
+    // `close` when the request stream completes — i.e. as soon as the JSON body has
+    // been read — so it fired ~2ms into every run rather than on disconnect. That
+    // went unnoticed because it aborted the signal before `graph.run()` ever
+    // attached its listener, and a listener added after the event has fired never
+    // runs; the two mistakes cancelled out and nothing was cancellable at all.
+    // `response` emits `close` when the socket actually goes away (and again after
+    // a normal `end()`, which is harmless — the run has already returned by then).
     const controller = new AbortController();
-    request.on('close', () => controller.abort());
+    response.on('close', () => controller.abort());
 
     try {
       if (demo === '1' || demo === 'true') {
@@ -66,13 +76,14 @@ export class AgentController {
         return;
       }
 
-      const result = await this.graph.run({
+      // The run records its own trace — including when it fails, which is why
+      // nothing is saved here. See AgentGraphService.run().
+      await this.graph.run({
         question: body.question,
         sessionId: body.sessionId,
         sink: write,
         signal: controller.signal,
       });
-      this.runs.save(result, startedAt);
     } catch (error) {
       // The graph has already emitted `run_failed` to the sink, so the client
       // knows; this is only about not leaving the request hanging.
@@ -116,13 +127,21 @@ export class AgentController {
     return { questions };
   }
 
+  /**
+   * One run, whole: its metadata, the exact event stream it produced, and its span
+   * tree (PLAN.md §5/M3.2).
+   *
+   * Durable since M3 — the in-memory store this replaced was capped at 100 runs and
+   * emptied on every restart, so a link to a run rarely survived long enough to be
+   * worth sending anyone.
+   */
   @Get('runs/:runId')
-  getRun(@Param('runId') runId: string): RecordedRun {
-    const run = this.runs.get(runId);
-    if (!run) {
+  async getRun(@Param('runId') runId: string): Promise<{ run: PersistedRun; spans: RunSpan[] }> {
+    const trace = await this.traces.get(runId);
+    if (!trace) {
       throw new NotFoundException(`No recorded run "${runId}"`);
     }
-    return run;
+    return trace;
   }
 
   private async streamRecorded(

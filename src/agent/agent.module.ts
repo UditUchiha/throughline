@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { ConfigModule } from '../config/config.module';
 import { RagModule } from '../rag/rag.module';
+import { ObservabilityModule } from '../observability/observability.module';
+import { RepositoriesModule } from '../repositories/repositories.module';
 import { AgentController } from './agent.controller';
 import { AgentGraphService } from './agent-graph.service';
-import { AgentRunStore } from './agent-run.store';
 import { RunReplayService } from './replay/run-replay.service';
 import { ExampleQuestionsService } from './examples/example-questions.service';
 import { ExecuteNode } from './nodes/execute.node';
@@ -22,10 +23,9 @@ import {
 import { ToolRegistry } from './tools/tool-registry';
 
 @Module({
-  imports: [ConfigModule, AiModule, RagModule],
+  imports: [ConfigModule, AiModule, RagModule, ObservabilityModule, RepositoriesModule],
   controllers: [AgentController],
   providers: [
-    AgentRunStore,
     RunReplayService,
     ExampleQuestionsService,
     MailSearchTool,

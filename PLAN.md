@@ -11,7 +11,7 @@ on the repository. Everything needed to start is in this document.
 
 ## Current status — read this first
 
-*Authored 2026-08-04. Status last updated 2026-09-04.*
+*Authored 2026-08-04. Status last updated 2026-09-05.*
 
 **Repo:** https://github.com/UditUchiha/throughline (public, one clean commit, no client data
 in history). Local dev on Windows, pnpm, Node 22.
@@ -29,7 +29,8 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **Provider failover** | ✅ Done | Pulled forward from §9 because free-tier quota was killing ~half of all runs. `LLM_FALLBACK_PROVIDERS` + `FailoverLlmService`. |
 | **Recorded-run replay** | ✅ Done | Also pulled forward from §9. `POST /agent/ask?demo=1` replays a fixture; `GET /agent/demo` lists them; `pnpm capture:runs` records them. Lets M2 be built without spending quota, and is the degraded-demo path. |
 | **M2 — UI** | ✅ Done | `ui/` — Next.js App Router + Tailwind, pure rendering over the frozen event contract. Question box + one-click examples, plan panel with the hop grouping, tool timeline, evidence grouped by source, citation chips that scroll to and highlight their evidence, memory placeholder, run stats. `?demo=1` replays with zero model calls. Two supporting API additions — see the deviations below. |
-| **M3–M6** | ⬜ Not started | **M3 (observability) is the next task.** Unchanged from the plan below. |
+| **M3 — observability** | ✅ Done | Local trace store done and tested (`runs` + `run_spans`, `TraceRepository` port, `TraceCollector`; replaces the in-memory `AgentRunStore`, and captures failed runs too). Cost/token accounting done, prices verified against provider pages. LangSmith verified live — planner → tool → LLM nesting confirmed on a real second-hop run, shared publicly and linked from the README. |
+| **M4–M6** | ⬜ Not started | **M4 (memory) is the next task.** Unchanged from the plan below. |
 
 > [!NOTE]
 > **The embedding/retrieval path is now proven end-to-end** (2026-09-02, resolving the
@@ -735,10 +736,37 @@ per-model price table in config (Ollama = 0). Surface in `run_finished` and the 
 
 #### Acceptance criteria — M3
 
-- [ ] A run produces a LangSmith trace with correct span nesting; link works when logged out.
-- [ ] `GET /agent/runs/:runId` returns a complete, replayable run.
-- [ ] Reported token counts match the provider's own reporting within ~5%.
-- [ ] Cost shows `$0.00` on Ollama and a plausible non-zero figure on a paid model.
+- [x] A run produces a LangSmith trace with correct span nesting; link works when logged out.
+      *Span nesting **verified live 2026-09-05** against a real APAC-region account. A
+      second-hop run traces as: `LangGraph → triage/plan/reflect/synthesize (llm children)`
+      and `execute → [retriever] chat_search + notes_search`, then a second `execute →
+      notes_search + mail_search` — planner → tool → LLM, with the reflect loop visible as
+      two passes. Neither of the lower levels is automatic: model calls go through the raw
+      `openai` SDK and tools are plain functions, so LangGraph sees neither.
+      `LangSmithTracing.wrapClient` and `.traceTool` are what supply them; remove either and
+      a level silently disappears. The trace is **shared publicly and confirmed to resolve
+      logged out** (HTTP 200 anonymously, checked without a session); it is linked from the
+      README's Observability section. Note `LANGSMITH_ENDPOINT` must match the account's
+      region; a mismatch 403s every authenticated call and looks exactly like a bad key.*
+      https://apac.smith.langchain.com/public/14204394-ae03-4e47-afb0-8ada1c2dd735/r/01a06fe7-641a-700e-8d18-34e5efc77473
+- [x] `GET /agent/runs/:runId` returns a complete, replayable run. *Metadata, the verbatim
+      event stream, and the span tree. Durable in sqlite, and now records failed runs too —
+      the store it replaced was in-memory, capped at 100, and only ever saw runs that
+      returned. Round-tripped in `sqlite-trace.repository.spec.ts`.*
+- [x] Reported token counts match the provider's own reporting within ~5%. *They are the
+      provider's own reporting: `prompt_tokens` / `completion_tokens` are read from each
+      response and summed per run, never estimated. The residual risk is a provider that
+      omits `usage` — that reads as 0, not as an error.*
+- 🟡 Cost shows `$0.00` on Ollama and a plausible non-zero figure on a paid model. *The
+      paid half is **observed**: a live Gemini run reported $0.00067689 across two models at
+      different rates. The Ollama half is **unit-tested only** — `priceFor` short-circuits on
+      `provider === 'ollama'` before any table lookup, so it reports $0.00 rather than "not
+      priced" (the distinction the null path exists to preserve), and `usage.service.spec.ts`
+      pins that. But `LLM_PROVIDER=ollama` has still never been run, so this is not observed
+      behaviour and the box is not ticked. Prices in `src/config/model-prices.ts` were
+      **verified against each provider's own pricing page on 2026-09-05** — the first draft
+      was a generation out of date (Gemini 2.5 rates under 3.5 ids) and understated every run
+      by ~4.5x, which is the failure mode to expect from that file.*
 
 ---
 

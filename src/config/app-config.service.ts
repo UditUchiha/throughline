@@ -154,4 +154,26 @@ export class AppConfigService {
   get agentTimeoutMs(): number {
     return this.configService.get('AGENT_TIMEOUT_MS', { infer: true });
   }
+
+  // --- Observability ---
+
+  get traceRetentionRuns(): number {
+    return this.configService.get('TRACE_RETENTION_RUNS', { infer: true });
+  }
+
+  get langsmithTracing(): boolean {
+    return this.configService.get('LANGSMITH_TRACING', { infer: true });
+  }
+
+  get langsmithApiKey(): string | undefined {
+    return this.configService.get('LANGSMITH_API_KEY', { infer: true });
+  }
+
+  get langsmithProject(): string {
+    return this.configService.get('LANGSMITH_PROJECT', { infer: true });
+  }
+
+  get langsmithEndpoint(): string {
+    return this.configService.get('LANGSMITH_ENDPOINT', { infer: true });
+  }
 }

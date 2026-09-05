@@ -6,6 +6,7 @@ import { RepositoriesModule } from './repositories/repositories.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { RagModule } from './rag/rag.module';
 import { AgentModule } from './agent/agent.module';
+import { ObservabilityModule } from './observability/observability.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
     KnowledgeModule,
     RagModule,
     AgentModule,
+    ObservabilityModule,
     SchedulerModule,
   ],
   controllers: [AppController],

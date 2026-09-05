@@ -4,6 +4,9 @@ import { AppConfigService, type LlmProvider } from '../../config/app-config.serv
 import { FailoverLlmService } from './failover-llm.service';
 import { LLM_SERVICE } from './llm.constants';
 import { OpenAICompatibleProvider } from './openai-compatible.provider';
+import { ObservabilityModule } from '../../observability/observability.module';
+import { LangSmithTracing } from '../../observability/langsmith-tracing.service';
+import { UsageService } from '../../observability/usage.service';
 
 /**
  * Builds the ordered provider chain: the primary from `LLM_PROVIDER`, then each
@@ -14,7 +17,11 @@ import { OpenAICompatibleProvider } from './openai-compatible.provider';
  * a working app on their primary provider. The primary is different: if it has no
  * key, nothing works, so that is a hard error.
  */
-function buildProviderChain(config: AppConfigService): OpenAICompatibleProvider[] {
+function buildProviderChain(
+  config: AppConfigService,
+  usage: UsageService,
+  tracing: LangSmithTracing,
+): OpenAICompatibleProvider[] {
   const logger = new Logger('LlmModule');
   const primary = config.llmProvider;
 
@@ -25,7 +32,7 @@ function buildProviderChain(config: AppConfigService): OpenAICompatibleProvider[
     );
   }
 
-  const chain = [new OpenAICompatibleProvider(config, primary, primaryKey, true)];
+  const chain = [new OpenAICompatibleProvider(config, primary, primaryKey, true, usage, tracing)];
   const seen = new Set<LlmProvider>([primary]);
 
   for (const fallback of config.llmFallbackProviders) {
@@ -39,19 +46,20 @@ function buildProviderChain(config: AppConfigService): OpenAICompatibleProvider[
       );
       continue;
     }
-    chain.push(new OpenAICompatibleProvider(config, fallback, key, false));
+    chain.push(new OpenAICompatibleProvider(config, fallback, key, false, usage, tracing));
   }
 
   return chain;
 }
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, ObservabilityModule],
   providers: [
     {
       provide: LLM_SERVICE,
-      useFactory: (config: AppConfigService) => new FailoverLlmService(buildProviderChain(config)),
-      inject: [AppConfigService],
+      useFactory: (config: AppConfigService, usage: UsageService, tracing: LangSmithTracing) =>
+        new FailoverLlmService(buildProviderChain(config, usage, tracing)),
+      inject: [AppConfigService, UsageService, LangSmithTracing],
     },
   ],
   exports: [LLM_SERVICE],

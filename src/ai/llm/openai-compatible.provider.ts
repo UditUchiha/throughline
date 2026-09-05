@@ -3,6 +3,8 @@ import OpenAI, { APIError } from 'openai';
 import type { AppConfigService, LlmProvider } from '../../config/app-config.service';
 import { resolveBaseUrl, resolveModel } from './model-tiers';
 import type { ChatMessage, ChatOptions, ChatResult, ChatTier, LlmService } from './llm.types';
+import type { LangSmithTracing } from '../../observability/langsmith-tracing.service';
+import type { UsageService } from '../../observability/usage.service';
 
 /**
  * Raised when a provider refuses on quota. Typed rather than string-matched so the
@@ -43,10 +45,12 @@ export class OpenAICompatibleProvider implements LlmService {
      * Groq for a Gemini model id.
      */
     private readonly useModelOverrides: boolean,
+    private readonly usage: UsageService,
+    tracing: LangSmithTracing,
   ) {
     const baseURL = resolveBaseUrl(provider, this.config.ollamaUrl);
 
-    this.client = new OpenAI({
+    const client = new OpenAI({
       baseURL,
       apiKey,
       // Keep this low. Retries beat a transient 5xx, but every attempt also counts
@@ -54,6 +58,13 @@ export class OpenAICompatibleProvider implements LlmService {
       // window faster. Surviving quota is the failover chain's job, not this one's.
       maxRetries: this.config.llmMaxRetries,
     });
+
+    // Wrapped, not replaced: this is what makes a model call show up as a child of
+    // the graph node that made it. LangGraph traces itself, but it has no idea this
+    // raw SDK client exists, so without the wrapper a LangSmith trace stops at the
+    // node and the LLM level of the hierarchy is simply missing (PLAN.md §5/M3.1).
+    // Returns the client untouched when tracing is off.
+    this.client = tracing.wrapClient(client);
     this.logger.log(`LLM provider: ${provider} (${baseURL})`);
   }
 
@@ -139,16 +150,24 @@ export class OpenAICompatibleProvider implements LlmService {
 
     this.logger.debug(`[${tier}] ${model} — ${usage?.total_tokens ?? '?'} tokens, ${latencyMs}ms`);
 
+    // `response.model` rather than the requested id, because that is what was
+    // actually billed — providers resolve aliases to dated builds.
+    const servedModel = response.model ?? model;
+    const tokens = {
+      inputTokens: usage?.prompt_tokens ?? 0,
+      outputTokens: usage?.completion_tokens ?? 0,
+    };
+
     return {
       text,
       provider: this.provider,
-      model: response.model ?? model,
-      usage: {
-        inputTokens: usage?.prompt_tokens ?? 0,
-        outputTokens: usage?.completion_tokens ?? 0,
-      },
+      model: servedModel,
+      usage: tokens,
       latencyMs,
-      costUsd: null, // TODO: per-model cost table
+      // `null` when this model has no published price. Priced per call rather than
+      // per run because failover can change vendor mid-run, so a run's cost is a
+      // sum over calls at different rates, not tokens times one number.
+      costUsd: this.usage.costOf(this.provider, servedModel, tokens),
     };
   }
 
