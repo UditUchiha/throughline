@@ -54,6 +54,7 @@ function graphConfig(signal?: AbortSignal): {
     signal: signal ?? new AbortController().signal,
     counter: { seq: 0 },
     usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    models: [],
   };
   return { config: { configurable: { [AGENT_RUN_CONTEXT]: context } }, emitted };
 }
@@ -168,12 +169,13 @@ describe('ExecuteNode', () => {
       timedTool('chat_search', 1, [], 2),
     ]);
 
+    const { config, emitted } = graphConfig();
     const update = await new ExecuteNode(registry).run(
       state([
         { id: 'sq1', text: 'a', tool: 'mail_search', status: 'pending', hop: 0 },
         { id: 'sq2', text: 'b', tool: 'chat_search', status: 'pending', hop: 0 },
       ]),
-      graphConfig().config,
+      config,
     );
 
     const subQuestions = update.subQuestions as SubQuestion[];
@@ -182,6 +184,34 @@ describe('ExecuteNode', () => {
     expect(bySubQuestion.get('sq1')?.error).toBe('index unavailable');
     expect(bySubQuestion.get('sq2')?.status).toBe('done');
     expect(update.evidence).toHaveLength(1);
+
+    // `status: 'failed'` only ever reaches graph state, so without `error` on the
+    // event a consumer cannot tell this apart from a search that found nothing —
+    // and the UI rendered it as a completed sub-question.
+    const finished = emitted.filter((event) => event.type === 'tool_finished');
+    const failed = finished.find((event) => event.subQuestionId === 'sq1');
+    expect(failed?.error).toBe('index unavailable');
+    expect(failed?.evidenceIds).toEqual([]);
+    expect(finished.find((event) => event.subQuestionId === 'sq2')?.error).toBeUndefined();
+  });
+
+  // Without a `tool_finished` here the sub-question `reflect` announced would sit
+  // pending in a consumer for the rest of the run — nothing else ever mentions it.
+  it('announces an unknown tool as a failed call rather than saying nothing', async () => {
+    const { config, emitted } = graphConfig();
+
+    const update = await new ExecuteNode(
+      new ToolRegistry([timedTool('mail_search', 1, [], 1)]),
+    ).run(
+      state([{ id: 'sq1', text: 'a', tool: 'nope_search', status: 'pending', hop: 1 }]),
+      config,
+    );
+
+    expect((update.subQuestions as SubQuestion[])[0].status).toBe('failed');
+
+    const finished = emitted.find((event) => event.type === 'tool_finished');
+    expect(finished?.subQuestionId).toBe('sq1');
+    expect(finished?.error).toContain('nope_search');
   });
 
   it('fails pending sub-questions instead of hanging once the run budget is spent', async () => {

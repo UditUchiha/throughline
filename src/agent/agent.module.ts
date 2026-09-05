@@ -6,6 +6,7 @@ import { AgentController } from './agent.controller';
 import { AgentGraphService } from './agent-graph.service';
 import { AgentRunStore } from './agent-run.store';
 import { RunReplayService } from './replay/run-replay.service';
+import { ExampleQuestionsService } from './examples/example-questions.service';
 import { ExecuteNode } from './nodes/execute.node';
 import { PlanNode } from './nodes/plan.node';
 import { ReflectNode } from './nodes/reflect.node';
@@ -26,6 +27,7 @@ import { ToolRegistry } from './tools/tool-registry';
   providers: [
     AgentRunStore,
     RunReplayService,
+    ExampleQuestionsService,
     MailSearchTool,
     ChatSearchTool,
     NotesSearchTool,

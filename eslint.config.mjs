@@ -16,6 +16,10 @@ export default tseslint.config(
       'node_modules/**',
       // Local agent-tooling scratch space, not project source.
       '.remember/**',
+      // The M2 UI is a separate package with its own Next.js toolchain and its own
+      // tsconfig. Linting it from here would parse React and JSX against the API's
+      // TypeScript program and fail on every file. Run `pnpm lint` inside `ui/`.
+      'ui/**',
     ],
   },
   eslint.configs.recommended,

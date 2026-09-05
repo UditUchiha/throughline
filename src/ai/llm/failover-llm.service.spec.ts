@@ -6,6 +6,7 @@ import { QuotaExceededError, type OpenAICompatibleProvider } from './openai-comp
 function result(model: string): ChatResult {
   return {
     text: `answer from ${model}`,
+    provider: 'gemini',
     model,
     usage: { inputTokens: 1, outputTokens: 1 },
     latencyMs: 0,

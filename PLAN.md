@@ -28,7 +28,8 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M1.4 — streaming HTTP surface** | ✅ Done | `POST /agent/ask` (SSE) and `GET /agent/runs/:runId`. Event contract frozen in `src/agent/events.ts`. CORS enabled. |
 | **Provider failover** | ✅ Done | Pulled forward from §9 because free-tier quota was killing ~half of all runs. `LLM_FALLBACK_PROVIDERS` + `FailoverLlmService`. |
 | **Recorded-run replay** | ✅ Done | Also pulled forward from §9. `POST /agent/ask?demo=1` replays a fixture; `GET /agent/demo` lists them; `pnpm capture:runs` records them. Lets M2 be built without spending quota, and is the degraded-demo path. |
-| **M2–M6** | ⬜ Not started | **M2 (UI) is the next task.** Unchanged from the plan below. |
+| **M2 — UI** | ✅ Done | `ui/` — Next.js App Router + Tailwind, pure rendering over the frozen event contract. Question box + one-click examples, plan panel with the hop grouping, tool timeline, evidence grouped by source, citation chips that scroll to and highlight their evidence, memory placeholder, run stats. `?demo=1` replays with zero model calls. Two supporting API additions — see the deviations below. |
+| **M3–M6** | ⬜ Not started | **M3 (observability) is the next task.** Unchanged from the plan below. |
 
 > [!NOTE]
 > **The embedding/retrieval path is now proven end-to-end** (2026-09-02, resolving the
@@ -101,6 +102,38 @@ in history). Local dev on Windows, pnpm, Node 22.
 - The corpus is 169 documents (82 mail / 47 chat channel-days / 40 notes) rather than §6's
   literal counts. Chat documents are channel-*days* containing 3–7 messages each, so total
   message volume lands in the intended range.
+- **M2 added two things to the API that the plan describes but does not enumerate.**
+  §5/M2 asks for example questions "from `corpus/questions.yaml`" and for run stats showing
+  "provider/model used", and neither was reachable from a UI that deploys separately:
+  1. `GET /agent/examples` projects the question set to `{id, question, category,
+     requiredSources, minHops, expectedAbstention}` plus a `demoSlug` where a recording
+     exists. `referenceAnswer` and `requiredFacts` are deliberately **not** served — they
+     are the answer key, and an endpoint handing them out invites the graded answer into a
+     prompt.
+  2. `ChatResult` now carries the `provider` that served the call, and `run_finished`
+     carries an optional `models: string[]` of every `provider/model` used, in first-use
+     order. A list rather than one value because failover changes vendor mid-run — a run
+     served by `groq → gemini` is a real and observed case. The field is **optional** on
+     the event because the contract is append-only and the four fixtures in
+     `fixtures/runs/` predate it; the UI shows nothing there rather than inventing a value.
+  3. `tool_finished` gained an optional `error`. Without it a failed retrieval is
+     indistinguishable on the wire from one that matched nothing — both carry
+     `evidenceIds: []` — and `status: 'failed'` never leaves graph state, because
+     `plan_created` and `reflect_done` are both emitted *before* execution runs. The UI was
+     consequently rendering a thrown tool call as a completed sub-question, which is the
+     inverse of what M2 exists to demonstrate. Also emitted for the unknown-tool branch,
+     which previously emitted nothing at all and left the sub-question pending forever.
+- **The UI mirrors the event contract rather than importing it.** `ui/lib/agent-events.ts`
+  is a hand-kept copy of `src/agent/events.ts`. Importing across the boundary would couple
+  two independent deployments at build time. `ui/lib/run-state.test.ts` replays the real
+  `fixtures/runs/*.json` through the UI reducer, so a contract change the UI has not
+  followed fails there rather than in a browser.
+- **Citation markers are never derived from evidence arrival order.** `synthesize` sorts
+  evidence by distance and truncates before numbering it, so `[5]` is routinely *not* the
+  fifth chunk retrieved — measured on `second-hop-board-outcomes`, where marker 5 is
+  `ev-160` and the fifth arrival is `ev-161`. The UI builds its marker map from the
+  `citations` array only. There is a test pinning this, because the failure is silent and
+  points every chip at the wrong card.
 - `fact.security-finding-2` was **split** into a report fact and a
   `fact.security-finding-2-resolution` fact during M0.5. The original bundled "reported on
   2025-11-12", "fixed by Ben Holt", and "no bounty was paid" into one statement assigned
@@ -660,11 +693,20 @@ rate limits are exhausted, and it makes the README GIF trivial to record.
 
 #### Acceptance criteria — M2
 
-- [ ] Local UI renders a full multi-hop run live, all panels populating in order.
-- [ ] Citation chips scroll to and highlight the correct evidence.
-- [ ] `?demo=1` replays a recorded run with zero API calls.
-- [ ] Mobile viewport is usable (recruiters open links on phones).
-- [ ] No unhandled promise rejections in the console during a full run.
+- [x] Local UI renders a full multi-hop run live, all panels populating in order.
+      *Verified in two halves, because free-tier providers would not hold a full live run
+      open on the day: a live run streamed `triage_done` → `plan_created` → two parallel
+      `tool_started` → `tool_finished` → `evidence_added` into the panels in order before
+      the provider stalled the reflect call to the 60s budget; and complete runs — simple,
+      multi-hop, second-hop and abstention — render end to end via `?demo=1`, which travels
+      the identical SSE path with genuinely captured events. Worth re-confirming in one
+      shot when quota allows.*
+- [x] Citation chips scroll to and highlight the correct evidence.
+- [x] `?demo=1` replays a recorded run with zero API calls.
+- [x] Mobile viewport is usable (recruiters open links on phones). *Checked at 375px: no
+      horizontal overflow, single column, all panels legible.*
+- [x] No unhandled promise rejections in the console during a full run. *Including the
+      awkward paths — interrupting a run with a second question, and Stop mid-stream.*
 
 ---
 

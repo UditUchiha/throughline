@@ -5,7 +5,7 @@ Orientation document for a new agent or contributor picking this project up cold
 acceptance criteria; `CLAUDE.md` is the always-loaded rules digest. This file tells you
 where you are, what has actually been proven, and what to do next.
 
-_Last updated: 2026-09-04 (M1 complete + recorded-run replay; M2 is next)._
+_Last updated: 2026-09-04 (M2 complete — the UI renders the stream; M3 is next)._
 
 ---
 
@@ -44,7 +44,8 @@ key, pre-seeded data, under 30 seconds.
 
 NestJS 11 (DI everywhere) · TypeScript · better-sqlite3 + `sqlite-vec` for vector KNN ·
 Zod-validated env · Pino logging · `openai` SDK used as a _generic OpenAI-compatible client_ ·
-LangGraph.js for orchestration (M1.3 onward) · Next.js UI on Vercel (M2) · Node 22, pnpm.
+LangGraph.js for orchestration · Next.js 16 (App Router) + Tailwind v4 in `ui/`, deployed
+separately to Vercel · Node 22, pnpm.
 
 ### Architectural spine
 
@@ -111,9 +112,10 @@ hook auto-runs `pnpm corpus:generate --verify-only` on ledger edits.
 | M1.3 the agent graph | ✅ | LangGraph `StateGraph` + tool registry + 5 nodes. Verified live against the real corpus. |
 | M1.4 SSE surface | ✅ | `POST /agent/ask` (SSE), `GET /agent/runs/:runId`. Event contract frozen. |
 | Provider failover | ✅ | Pulled forward from §9 — free-tier quota was killing ~half of all runs. `gemini → groq` chain, verified live. |
-| Lint / typecheck | ✅ | `pnpm lint`, bare `npx eslint .`, and `npx tsc --noEmit` all exit 0. 50 tests across 7 suites. |
-| **M2 UI** | ⬜ **← next task** | Next.js on Vercel, pure rendering over the frozen event contract. |
-| M3 observability · M4 memory · M5 MCP · M6 evals+CI | ⬜ | See PLAN.md §5. |
+| Lint / typecheck | ✅ | `pnpm lint`, bare `npx eslint .`, and `npx tsc --noEmit` all exit 0. 68 tests across 9 suites, plus 11 in `ui/` (which has its own ESLint — `next lint` was removed in Next 16). |
+| **M2 UI** | ✅ | `ui/` — Next.js App Router + Tailwind, pure rendering over the frozen event contract. All seven panels; `?demo=1` replays with zero model calls. |
+| **M3 observability** | ⬜ **← next task** | LangSmith, a local trace store, cost/token accounting. See PLAN.md §5. |
+| M4 memory · M5 MCP · M6 evals+CI | ⬜ | See PLAN.md §5. |
 
 ### What a live run actually does (verified 2026-09-02)
 
@@ -200,8 +202,15 @@ provider would otherwise have rejected outright.
   against them. Gemini's and Groq's were both stale when checked, so assume these are too.
 - The second-hop rate is ~10% of multi-hop questions. It works; whether it *should* fire more
   is an M6 measurement, not a prompt-tuning exercise to do now.
+- **A full live multi-hop run has not been watched end to end in the UI in one sitting.**
+  Every panel is proven — the live path streamed triage → plan → two parallel tool calls →
+  evidence into them before the provider stalled the reflect call to the 60s budget, and the
+  complete runs render via `?demo=1` over the identical SSE path — but the two halves were
+  observed in different runs. Re-confirm when quota is healthy.
 
-`pnpm lint` and `pnpm test` both pass clean. There is still no CI; it arrives in M6.
+`pnpm lint` and `pnpm test` pass clean (68 tests across 9 suites), as do `cd ui && pnpm lint`,
+`cd ui && pnpm typecheck` and `cd ui && pnpm test` (11 tests). There is still no CI; it
+arrives in M6.
 
 ### Dead ends — things already tried that did not work
 
@@ -280,6 +289,10 @@ pnpm build                # also: pnpm lint, pnpm test
 
 pnpm corpus:generate --verify-only        # re-check the answer key, no model calls, seconds
 pnpm corpus:generate --only=fact.<id>     # regenerate docs for one fact (needs GEMINI_API_KEY)
+
+cd ui && pnpm install && cp .env.example .env.local
+pnpm dev                  # UI on :3000 — open /?demo=1 to spend no quota
+pnpm lint && pnpm typecheck && pnpm test
 ```
 
 Local Ollama on `:11434` is only required when `LLM_PROVIDER=ollama` or
@@ -297,6 +310,8 @@ Local Ollama on `:11434` is only required when `LLM_PROVIDER=ollama` or
 | `src/ai/llm/`       | `LLM_SERVICE` token, one OpenAI-compatible client per provider, failover chain, tier-to-model map |
 | `src/embeddings/`   | `EMBEDDING_SERVICE` token, gemini + ollama providers                     |
 | `src/agent/`        | **the graph** — state, nodes, tools, events, SSE controller              |
+| `src/agent/examples/` | `corpus/questions.yaml` projected for the UI's one-click examples      |
+| `ui/`               | the M2 UI — its own package, its own lockfile, its own toolchain        |
 | `corpus/`           | ledger (ground truth) + generated docs + questions                       |
 | `evals/`            | eval harness — empty until M6                                            |
 | `scripts/`          | authoring tools, run outside the Nest context                            |
@@ -316,12 +331,12 @@ RetrievalService.search(query, topK?, sourceFilter?)
 
 ---
 
-## 7. Build the UI against recorded runs, not live ones
+## 7. Work against recorded runs, not live ones
 
 **A live run costs ~4 model calls against a free tier measured in tens per minute.** Iterating
-on layout against live runs burns quota within the hour, and it runs out mid-demo rather than
-mid-development. So `POST /agent/ask?demo=1` replays a recorded run instead — same route, same
-event stream, zero model calls.
+on anything downstream of the graph against live runs burns quota within the hour, and it runs
+out mid-demo rather than mid-development. So `POST /agent/ask?demo=1` replays a recorded run
+instead — same route, same event stream, zero model calls.
 
 ```bash
 curl localhost:5000/agent/demo          # what is available, with labels and durations
@@ -336,7 +351,7 @@ Three things to know about it:
 
 - **A replay always emits `run_replayed` first**, carrying the slug, the true capture time, and
   a reason. That is the honesty mechanism for PLAN.md §9's degraded demo — a recording cannot
-  present itself as live. Render a banner from it.
+  present itself as live. The UI renders a banner from it; do not remove that.
 - **`seq` and `ts` are re-stamped** to the replay, so elapsed-time maths works normally. The
   original capture time is in `run_replayed.capturedAt`.
 - **Gaps longer than 2s are clamped**, so a replay is quicker than the original run without
@@ -345,44 +360,103 @@ Three things to know about it:
 Fixtures reload when the files change, so `pnpm capture:runs` takes effect without a restart
 (`nest start --watch` watches `src/`, not `fixtures/`).
 
-## 8. What to do next
+## 8. The UI (`ui/`)
 
-**M2 — the UI** (PLAN.md §5). It is pure rendering: the event contract in
-`src/agent/events.ts` is frozen and every event a run emits is already flowing over SSE.
+Its own package, its own lockfile, its own toolchain — Next.js 16 App Router, React 19,
+Tailwind v4. It deploys to Vercel while the API deploys to HF Spaces, so **the browser always
+makes a cross-origin request** and `NEXT_PUBLIC_API_URL` is the only thing it needs to know.
 
-Consume it with `EventSource`-style parsing of `POST /agent/ask` (named events plus the same
-JSON in `data`), and render the run as it arrives: sub-questions when `plan_created` lands,
-per-tool cards on `tool_started` / `tool_finished` with their latencies, evidence with source
-badges and distances, the reflect verdict, then the cited answer with `[n]` markers linking to
-their evidence. Ship the one-click example questions — a visitor will not know what to ask.
+```bash
+cd ui && pnpm install
+cp .env.example .env.local
+pnpm dev            # http://localhost:3000 — open /?demo=1 to spend no quota
+pnpm lint && pnpm typecheck && pnpm test
+```
 
-`GET /agent/runs/:runId` returns a finished run for deep-links and replay.
+### How it is put together
 
-### Things the UI has to handle, because they will happen
+```
+ui/lib/agent-events.ts   mirror of src/agent/events.ts — see the warning below
+ui/lib/sse.ts            fetch + hand-rolled SSE frame parser (EventSource cannot POST)
+ui/lib/run-state.ts      the reducer: events -> RunView. All the real logic is here
+ui/lib/presentation.ts   source colours, category labels, formatting
+ui/lib/api.ts            askStream(), fetchExamples(), fetchDemoRuns()
+ui/components/           one panel each; none of them fetch anything
+ui/app/page.tsx          the only stateful component
+```
 
-- **A run can fail mid-stream.** `run_failed` is a real event, not a theoretical one — free-tier
-  quota is the usual cause even with failover configured. Render it as a message, not a blank
-  screen. PLAN.md §9 wants a `?demo=1` recorded-run fallback with an honest banner; `GET
-  /agent/runs/:runId` already returns finished runs, so that is mostly wiring.
-- **`POST /agent/ask` has no rate limit and CORS is open to any origin** (`main.ts`). Both are
-  deliberate for local dev and both need revisiting before the endpoint is public — this is the
-  milestone where it becomes public.
-- **An answer can legitimately have zero citations** when the agent abstains. Do not treat an
-  empty `citations` array as an error state.
-- **`distance` is lower-is-better**, not a 0–1 score. Rendering it as a progress bar without
-  inverting it will show the best evidence as the weakest.
+### Seven things that will bite you
+
+- **There are two hand-kept mirrors, and only one of them is pinned.**
+  `ui/lib/agent-events.ts` mirrors `src/agent/events.ts`, and `ui/lib/run-state.test.ts`
+  replays the real `fixtures/runs/*.json` through the reducer, so drift fails there rather
+  than in a browser. `ui/lib/api.ts` mirrors `src/agent/examples/example-question.ts` and
+  **nothing checks it** — which is why `QuestionCategory` there is deliberately an open
+  string type: a category added on the API side renders with its raw name instead of
+  disappearing from a list that still counts it.
+- **Citation markers are not evidence positions.** `synthesize` sorts evidence by distance and
+  truncates before numbering it, so `[5]` is routinely *not* the fifth chunk retrieved. Build
+  marker maps from the `citations` array only (`markersByEvidenceId`). There is a test pinning
+  this because the failure is silent and sends every chip to the wrong card.
+- **`distance` is lower-is-better** and is not normalised to 0–1. `relevanceFraction()` inverts
+  it against the band this corpus occupies purely so the bars are comparable; the number beside
+  the bar stays the real distance, and the label says "d" rather than "score" on purpose. The
+  band is measured off the committed fixtures (0.406–0.585 on `gemini-embedding-001` at 768d)
+  and is **not portable across embedding models** — re-measure it if `EMBEDDING_MODEL` changes.
+- **The tool timeline is scaled to the retrieval window**, not the whole run. Model calls
+  dominate wall-clock — a 26s run can finish all its retrieval inside 4s — so scaling to the
+  run squeezes every bar into a sliver and destroys the one thing the chart exists to show.
+  Total run time lives in the stats panel instead.
+- **An empty `citations` array is not an error.** The agent abstaining is a scored outcome.
+- **An empty `evidenceIds` on `tool_finished` is not a failure either.** A search can
+  legitimately match nothing. Only `tool_finished.error` separates the two, and it exists
+  because `status: 'failed'` never leaves graph state — `plan_created` and `reflect_done` are
+  emitted *before* execution. Treat the two alike and the UI reports a failed retrieval as a
+  completed one, which is the opposite of what this UI is for.
+- **Aborting a stream does not reliably raise.** One chunk carries several SSE frames, and
+  those are already decoded — so a consumer that only catches `AbortError` keeps applying
+  events after the caller walked away. `lib/sse.ts` checks `signal.aborted` per *frame*, and
+  `app/page.tsx` re-checks it after the loop. Without both, Stop is undone by a buffered
+  `run_finished`.
+
+### What the API gained for it
+
+- `GET /agent/examples` — the authored question set, projected to what a chip needs, plus a
+  `demoSlug` where a recording exists. `referenceAnswer` and `requiredFacts` are **never**
+  served: they are the answer key.
+- `run_finished` now carries optional `models: string[]` (`provider/model`, first-use order),
+  fed by a new `provider` field on `ChatResult`. A list because failover changes vendor
+  mid-run — `groq/openai/gpt-oss-20b → gemini/gemini-3.5-flash` in one run is observed, not
+  hypothetical. Optional because the committed fixtures predate the field.
+
+## 9. What to do next
+
+**M3 — observability** (PLAN.md §5). LangSmith tracing, a local trace store to replace the
+in-memory `AgentRunStore`, and cost/token accounting. The `models` field added in M2 is the
+first thread of that last one: the token counts are already there, and a per-model price
+table is what turns `costUsd: null` into a number.
 
 ### Known gaps worth closing along the way
 
-- `token_delta` currently fires once with the whole synthesised answer. Real token streaming
-  needs an `LlmService.chatStream` method — the event is already in the contract, so the UI can
-  be written against per-token deltas today and get them for free later.
+- **`POST /agent/ask` has no rate limit and CORS is open to any origin** (`main.ts`). Both were
+  deliberate for local dev and both are still open. This is the endpoint a public UI now points
+  at, so it needs revisiting before deployment — it was left alone in M2 because rate limiting
+  is a new dependency and a scope call, not because it is fine.
+- **The M2 live-run acceptance check was only verified in halves.** Free-tier providers would
+  not hold a full live multi-hop run open on the day: a live run streamed triage → plan → two
+  parallel tool calls → evidence into the panels before the reflect call stalled to the 60s
+  budget, and complete runs render end to end via `?demo=1` over the identical SSE path. Worth
+  re-confirming in one shot when quota allows.
+- `token_delta` still fires once with the whole synthesised answer. Real token streaming needs
+  an `LlmService.chatStream`; the UI already accumulates deltas, so it gets per-token rendering
+  for free the day that lands.
 - `AgentRunStore` is in-memory and capped at 100 runs. Durable tracing is M3.
 - `RETRIEVAL_DISTANCE_THRESHOLD` is configured but **not enforced** — it must be re-derived for
   the current embedding model first. See the comment in `src/config/env.schema.ts`.
 - `LLM_PROVIDER=ollama` is still unexercised, for lack of hardware.
 
-## 9. Working with this repo as an agent
+
+## 10. Working with this repo as an agent
 
 - Read the **section** of PLAN.md you need. It is ~1100 lines; do not read it whole.
 - Section index is in `CLAUDE.md`. Locked decisions are §11 — do not re-litigate them.

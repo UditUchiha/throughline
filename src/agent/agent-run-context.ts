@@ -18,6 +18,13 @@ export interface AgentRunContext {
   counter: { seq: number };
   /** Accumulated across every model call the run makes, for `run_finished`. */
   usage: TokenUsage & { costUsd: number | null };
+  /**
+   * Every distinct `provider/model` the run was served by, in first-use order.
+   * A list rather than a single value because failover can change vendor
+   * mid-run, and a stats panel claiming one provider served a run that two did
+   * would be quietly wrong.
+   */
+  models: string[];
 }
 
 export const AGENT_RUN_CONTEXT = 'agentRunContext';
@@ -55,7 +62,11 @@ export function createEmitter(config: LangGraphRunnableConfig): {
  * cost unknown rather than understated.
  */
 export function recordUsage(config: LangGraphRunnableConfig, result: ChatResult): void {
-  const { usage } = getRunContext(config);
+  const { usage, models } = getRunContext(config);
+
+  const served = `${result.provider}/${result.model}`;
+  if (!models.includes(served)) models.push(served);
+
   usage.inputTokens += result.usage.inputTokens;
   usage.outputTokens += result.usage.outputTokens;
   usage.costUsd =

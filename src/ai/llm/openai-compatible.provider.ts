@@ -141,6 +141,7 @@ export class OpenAICompatibleProvider implements LlmService {
 
     return {
       text,
+      provider: this.provider,
       model: response.model ?? model,
       usage: {
         inputTokens: usage?.prompt_tokens ?? 0,

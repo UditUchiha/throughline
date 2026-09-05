@@ -10,10 +10,12 @@ you need, not the whole file. Index below.
 
 | Task | Command |
 |---|---|
-| Dev server | `pnpm start:dev` |
+| Dev server (API, :5000) | `pnpm start:dev` |
+| Dev server (UI, :3000) | `cd ui && pnpm dev` — open `/?demo=1` to spend no quota |
 | Build | `pnpm build` |
 | Lint (autofix) | `pnpm lint` |
 | Tests | `pnpm test` |
+| UI checks | `cd ui && pnpm lint && pnpm typecheck && pnpm test` |
 | Re-verify the corpus answer key | `pnpm corpus:generate --verify-only` (no model calls, seconds) |
 | Ask the agent | `curl -N -X POST localhost:5000/agent/ask -H 'Content-Type: application/json' -d '{"question":"..."}'` |
 | Replay a recorded run (no model calls) | same, with `?demo=1` — see `GET /agent/demo` for what is available |
@@ -76,6 +78,8 @@ src/knowledge/    markdown loader, chunker, idempotent indexing service
 src/rag/          RetrievalService — vector search over sqlite-vec
 src/agent/        LangGraph graph: state, nodes, tools, frozen event contract, SSE controller
 src/agent/replay/ recorded runs replayed over SSE — the §9 demo fallback, and free UI iteration
+src/agent/examples/ corpus/questions.yaml projected for the UI's one-click examples
+ui/               Next.js UI — its own package and toolchain, deployed separately
 fixtures/runs/    captured agent runs (committed); written by `pnpm capture:runs`
 src/ai/, src/embeddings/  Ollama chat + embedding clients
 corpus/           ledger (ground truth) + generated documents + questions
@@ -98,14 +102,40 @@ scripts/          one-off authoring tools, run outside the Nest context
 | Locked decisions — do not re-litigate | §11 |
 | Deferred backlog | §12 |
 
+## The UI mirrors the event contract — keep them in step
+
+There are **two** hand-kept copies, because the UI deploys separately and cannot import
+across the boundary:
+
+- `ui/lib/agent-events.ts` mirrors `src/agent/events.ts`. Add an event variant on the API
+  side and you must add it here too; `cd ui && pnpm test` replays the real
+  `fixtures/runs/*.json` through the UI reducer and fails on drift.
+- `ui/lib/api.ts` mirrors `src/agent/examples/example-question.ts` (the `/agent/examples`
+  payload). **Nothing pins this one**, so it drifts silently — keep `QuestionCategory` open
+  rather than a closed union, so a category added on the API side renders with its raw name
+  instead of vanishing from the list.
+
+Three UI traps worth not re-learning:
+
+- **Citation markers are not evidence positions.** `synthesize` sorts evidence by distance
+  and truncates before numbering it, so `[5]` is routinely not the fifth chunk retrieved.
+  Build marker maps from the `citations` array only.
+- **`distance` is lower-is-better** and is not a 0–1 score. Rendering it as a bar without
+  inverting shows the best evidence as the weakest. The band in `relevanceFraction` is
+  measured against the committed fixtures and is specific to the embedding model.
+- **An empty `evidenceIds` does not mean failure.** A search can legitimately match
+  nothing; only `tool_finished.error` distinguishes the two. Treating them alike renders a
+  failed retrieval as a completed one.
+
 ## Known state
 
-M0 and M1 are done: retrieval **is** proven end-to-end (169/169 documents indexed, live
-agent runs producing cited answers), and the agent is reachable at `POST /agent/ask` (SSE)
-and `GET /agent/runs/:runId`. M2 (UI) is next.
+M0, M1 and M2 are done: retrieval is proven end-to-end (169/169 documents indexed, live
+agent runs producing cited answers), the agent is reachable at `POST /agent/ask` (SSE), and
+`ui/` renders the stream. M3 (observability) is next.
 
-Still open: `LLM_PROVIDER=ollama` has never been exercised, and no real corpus question has
-been seen driving a live second hop.
+Still open: `LLM_PROVIDER=ollama` has never been exercised; `POST /agent/ask` has no rate
+limit and CORS is open to any origin, which needs revisiting before deployment; and a full
+live multi-hop run has not been watched end to end in the UI in one sitting (see HANDOFF).
 
 **`HANDOFF.md` is the orientation doc** — read it before PLAN.md if you are picking this up
 cold. There is no CI yet; it arrives in M6.

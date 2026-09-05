@@ -109,6 +109,10 @@ export class AppConfigService {
     return this.configService.get('DEMO_RUNS_PATH', { infer: true });
   }
 
+  get corpusQuestionsPath(): string {
+    return this.configService.get('CORPUS_QUESTIONS_PATH', { infer: true });
+  }
+
   get promptsPath(): string {
     return this.configService.get('PROMPTS_PATH', { infer: true });
   }

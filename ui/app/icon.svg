@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Three scattered sources joined by one line: the throughline. Colours are the
+       mail / chat / notes accents used everywhere in the UI. -->
+  <rect width="32" height="32" rx="7" fill="#0b0f14" />
+  <path
+    d="M6 22 C 12 22, 12 10, 16 10 S 20 22, 26 22"
+    fill="none"
+    stroke="#7fe0a8"
+    stroke-width="2"
+    stroke-linecap="round"
+  />
+  <circle cx="6" cy="22" r="3.2" fill="#f0b45c" />
+  <circle cx="16" cy="10" r="3.2" fill="#5fd3dd" />
+  <circle cx="26" cy="22" r="3.2" fill="#c08cf0" />
+</svg>

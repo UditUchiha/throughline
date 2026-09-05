@@ -58,6 +58,10 @@ export const envSchema = z
     // Recorded agent runs, replayed over SSE for the §9 demo fallback and for
     // building the UI without spending model calls. Written by `pnpm capture:runs`.
     DEMO_RUNS_PATH: z.string().min(1).default('./fixtures/runs'),
+    // The authored question set (PLAN.md §6). Served to the UI as one-click examples,
+    // which §5/M2 calls non-optional: a visitor has no idea what this corpus contains.
+    // Only the question and its category are ever served — see ExampleQuestionsService.
+    CORPUS_QUESTIONS_PATH: z.string().min(1).default('./corpus/questions.yaml'),
 
     // --- Indexing ---
     REINDEX_INTERVAL_MS: z.coerce

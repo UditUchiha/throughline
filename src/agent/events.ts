@@ -43,6 +43,16 @@ export type AgentEvent =
       tool: string;
       evidenceIds: string[];
       latencyMs: number;
+      /**
+       * Present only when the tool threw. Without it a failed retrieval is
+       * indistinguishable on the wire from one that legitimately found nothing —
+       * both carry an empty `evidenceIds` — and a consumer has no way to render
+       * the sub-question as anything but done.
+       *
+       * Optional because the contract is append-only: the fixtures in
+       * `fixtures/runs/` predate the field, and every one of them succeeded.
+       */
+      error?: string;
     }
   | { type: 'evidence_added'; evidence: Evidence[] }
   | { type: 'reflect_done'; gapFound: boolean; followUps: SubQuestion[] }
@@ -56,6 +66,15 @@ export type AgentEvent =
       usage: TokenUsage;
       costUsd: number | null;
       latencyMs: number;
+      /**
+       * `provider/model` for every model the run used, in first-use order.
+       *
+       * Optional because the contract is append-only and the fixtures in
+       * `fixtures/runs/` were captured before this field existed — a replayed run
+       * legitimately has no value here, and the UI shows nothing rather than
+       * inventing one.
+       */
+      models?: string[];
     }
   | { type: 'run_failed'; error: string };
 

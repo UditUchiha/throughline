@@ -26,6 +26,7 @@ function stubLlm(text: string): { llm: LlmService; prompts: string[] } {
       prompts.push(options?.system ?? '');
       const result: ChatResult = {
         text,
+        provider: 'gemini',
         model: 'stub',
         usage: { inputTokens: 1, outputTokens: 1 },
         latencyMs: 0,
@@ -50,6 +51,7 @@ function graphConfig(): { config: LangGraphRunnableConfig; emitted: EmittedAgent
     signal: new AbortController().signal,
     counter: { seq: 0 },
     usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    models: [],
   };
   return { config: { configurable: { [AGENT_RUN_CONTEXT]: context } }, emitted };
 }

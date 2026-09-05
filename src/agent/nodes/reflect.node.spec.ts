@@ -23,6 +23,7 @@ function stubLlm(payload: unknown): LlmService {
     chat: (): Promise<ChatResult> =>
       Promise.resolve({
         text: JSON.stringify(payload),
+        provider: 'gemini',
         model: 'stub',
         usage: { inputTokens: 1, outputTokens: 1 },
         latencyMs: 0,
@@ -39,6 +40,7 @@ function graphConfig(): LangGraphRunnableConfig {
     signal: new AbortController().signal,
     counter: { seq: 0 },
     usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+    models: [],
   };
   return { configurable: { [AGENT_RUN_CONTEXT]: context } };
 }

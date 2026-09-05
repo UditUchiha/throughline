@@ -17,7 +17,9 @@ import { AgentRunStore, type RecordedRun } from './agent-run.store';
 import { askRequestSchema, type AskRequest } from './dto/ask.dto';
 import type { EmittedAgentEvent } from './events';
 import { RunReplayService } from './replay/run-replay.service';
-import type { RunFixtureSummary } from './replay/run-fixture';
+import { normaliseQuestion, type RunFixtureSummary } from './replay/run-fixture';
+import { ExampleQuestionsService } from './examples/example-questions.service';
+import type { ExampleQuestion } from './examples/example-question';
 
 @Controller('agent')
 export class AgentController {
@@ -27,6 +29,7 @@ export class AgentController {
     private readonly graph: AgentGraphService,
     private readonly runs: AgentRunStore,
     private readonly replay: RunReplayService,
+    private readonly examples: ExampleQuestionsService,
   ) {}
 
   /**
@@ -89,6 +92,28 @@ export class AgentController {
   @Get('demo')
   listDemoRuns(): { runs: RunFixtureSummary[] } {
     return { runs: this.replay.list() };
+  }
+
+  /**
+   * The authored question set, as one-click examples for the UI.
+   *
+   * `demoSlug` is filled in where a recorded run exists for the question, so the
+   * UI can tell a visitor which examples still work with the API's quota spent.
+   */
+  @Get('examples')
+  listExamples(): { questions: ExampleQuestion[] } {
+    // One pass over the fixtures rather than `replay.find()` per question: `find`
+    // re-stats the fixture directory on every call, so the obvious version cost
+    // ~280 synchronous fs syscalls per request on an endpoint with no rate limit.
+    const slugByQuestion = new Map(
+      this.replay.list().map((run) => [normaliseQuestion(run.question), run.slug]),
+    );
+
+    const questions = this.examples.list().map((question) => {
+      const slug = slugByQuestion.get(normaliseQuestion(question.question));
+      return slug ? { ...question, demoSlug: slug } : question;
+    });
+    return { questions };
   }
 
   @Get('runs/:runId')

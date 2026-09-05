@@ -120,6 +120,7 @@ export class AgentGraphService {
       signal: controller.signal,
       counter: { seq: 0 },
       usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      models: [],
     };
 
     const emit = (event: AgentEvent) =>
@@ -147,6 +148,7 @@ export class AgentGraphService {
         usage: { inputTokens: context.usage.inputTokens, outputTokens: context.usage.outputTokens },
         costUsd: context.usage.costUsd,
         latencyMs,
+        models: context.models,
       });
 
       this.logger.log(

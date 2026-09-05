@@ -83,12 +83,28 @@ export class ExecuteNode {
     if (!tool) {
       // The planner normalises unknown tool names, so reaching here means a
       // follow-up from `reflect` slipped through.
+      const error = `Unknown tool "${subQuestion.tool}"`;
+
+      // Emitted even though nothing ran: `reflect_done` already announced this
+      // sub-question as pending, and staying silent would leave it pending in a
+      // consumer forever. The pair is what says "dispatched, and it failed".
+      emit({
+        type: 'tool_started',
+        subQuestionId: subQuestion.id,
+        tool: subQuestion.tool,
+        input: subQuestion.text,
+      });
+      emit({
+        type: 'tool_finished',
+        subQuestionId: subQuestion.id,
+        tool: subQuestion.tool,
+        evidenceIds: [],
+        latencyMs: 0,
+        error,
+      });
+
       return {
-        subQuestion: {
-          ...subQuestion,
-          status: 'failed',
-          error: `Unknown tool "${subQuestion.tool}"`,
-        },
+        subQuestion: { ...subQuestion, status: 'failed', error },
         evidence: [],
       };
     }
@@ -138,6 +154,11 @@ export class ExecuteNode {
         tool: tool.name,
         evidenceIds: [],
         latencyMs: Date.now() - start,
+        // The failure has to travel with the event. `status: 'failed'` below only
+        // ever reaches graph state — `plan_created` and `reflect_done` are emitted
+        // before execution — so this is a consumer's only signal that the empty
+        // `evidenceIds` means "threw" rather than "found nothing".
+        error: message,
       });
 
       return {

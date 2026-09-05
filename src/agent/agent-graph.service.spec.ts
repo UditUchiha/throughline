@@ -44,6 +44,7 @@ function scriptedLlm(script: Script): LlmService {
 
       return Promise.resolve({
         text: JSON.stringify(payload),
+        provider: 'gemini',
         model: 'stub',
         usage: { inputTokens: 10, outputTokens: 5 },
         latencyMs: 0,
