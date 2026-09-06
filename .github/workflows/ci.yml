@@ -57,6 +57,78 @@ jobs:
       - name: Corpus answer key
         run: node -r ts-node/register scripts/corpus-generate.ts --verify-only
 
+      # The keyless index build, which is the load-bearing half of §9's image.
+      #
+      # Both steps run with no API key and no network, which is the whole point:
+      # `precomputed` replays the committed vectors, so this is seconds rather
+      # than the ~172 embedding calls a real reindex costs. It catches the one way
+      # the artifact rots — a corpus document edited, or CHUNK_SIZE changed,
+      # without regenerating `corpus/index/embeddings.json` — which would
+      # otherwise first appear as a failed Docker build on deployment day.
+      - name: Corpus vectors are current
+        env:
+          EMBEDDING_PROVIDER: precomputed
+        run: pnpm corpus:vectors --check
+
+      - name: Index builds without a key
+        env:
+          EMBEDDING_PROVIDER: precomputed
+          DATABASE_PATH: ./database/ci-index.db
+        run: pnpm corpus:index
+
+  # Proves the deployed artifact, not just the source. §9's image had never been
+  # built when this landed, and building it found two failures a green test suite
+  # could not: a root-owned `database/` that made sqlite's WAL unwritable under
+  # `USER node`, and embedding defaults that disagreed with each other once no
+  # `.env` was masking them. Both were boot failures behind a successful build, so
+  # this job runs the container rather than stopping at `docker build`.
+  docker:
+    name: Docker — build and boot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t throughline:ci .
+
+      # Placeholder keys, not secrets. Every provider constructor requires a key
+      # to exist — a server that cannot answer anything should say so at boot
+      # rather than on a visitor's first question — but nothing here spends one:
+      # the index is baked in, and `?demo=1` replays a committed fixture. So this
+      # job proves the image boots and serves without any quota at all, which is
+      # exactly the part `evals.yml` cannot check because it needs a real key.
+      - name: Boot it and serve a recorded run
+        env:
+          DOCKER_ENV: >-
+            -e GEMINI_API_KEY=placeholder
+            -e EMBEDDING_API_KEY=placeholder
+        run: |
+          docker run -d --name throughline-ci -p 7860:7860 $DOCKER_ENV throughline:ci
+          for _ in $(seq 1 30); do
+            if curl -sf localhost:7860/health > /dev/null; then break; fi
+            sleep 2
+          done
+          curl -sf localhost:7860/health
+
+          # `?demo=1` replays a committed fixture and makes no model calls, so it
+          # exercises the SSE surface end to end with no quota at all.
+          curl -sf -N -X POST 'localhost:7860/agent/ask?demo=1' \
+            -H 'Content-Type: application/json' \
+            -d '{"question":"When did Tariq Hassan start at Lumen Labs?"}' \
+            | grep -q 'event: run_finished'
+
+          # The index has to be the baked one. A boot that re-indexed would still
+          # answer, so "it works" is not evidence — `skipped=172` is.
+          docker logs throughline-ci 2>&1 | grep -q 'indexed=0 skipped=172'
+
+      - name: Container logs
+        if: always()
+        run: docker logs throughline-ci 2>&1 | tail -40
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f throughline-ci
+
   ui:
     name: UI — lint, typecheck, test
     runs-on: ubuntu-latest

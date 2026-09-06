@@ -29,6 +29,7 @@ const EXCHANGE = {
 
 function config(overrides: Partial<AppConfigService> = {}): AppConfigService {
   return {
+    longTermMemory: true,
     memoryImportanceFloor: 0.5,
     memoryDedupDistance: 0.35,
     memoryTopK: 3,
@@ -612,5 +613,84 @@ describe('LongTermMemoryService — the extraction gate', () => {
     expect(result.stored).toHaveLength(1);
     expect(repo.funnelCounts.skippedNoSelfReference).toBe(0);
     expect(repo.funnelCounts.proposed).toBe(1);
+  });
+});
+
+describe('LongTermMemoryService — LONG_TERM_MEMORY=false', () => {
+  /**
+   * The §9 deployment decision, as behaviour rather than documentation.
+   *
+   * `recall()` searches all of `memory_facts` with no visitor filter, which is
+   * the M4.2 feature locally and a cross-visitor leak on a public URL with no
+   * sign-in. Scoping to the session would delete the thing the milestone
+   * demonstrates, so the deployed instance switches the feature off instead and
+   * keeps it a local capability — the same shape as live connectors.
+   */
+
+  it('recalls nothing, and does not embed the question to find out', async () => {
+    const repo = new FakeMemoryRepository();
+    await repo.insert({ text: PREFERENCE, kind: 'preference', importance: 0.9 }, [1, 0, 0], ORIGIN);
+    const { embeddings, calls } = stubEmbeddings();
+
+    const service = new LongTermMemoryService(
+      config({ longTermMemory: false }),
+      stubLlm({ facts: [] }),
+      embeddings,
+      repo,
+    );
+
+    expect(await service.recall('Who prefers what?')).toEqual([]);
+    // The check has to come before the embedding call, not after it: a disabled
+    // feature that still spends quota per question is not disabled.
+    expect(calls).toEqual([]);
+  });
+
+  it('leaves a stored fact untouched rather than deleting it', async () => {
+    const repo = new FakeMemoryRepository();
+    await repo.insert({ text: PREFERENCE, kind: 'preference', importance: 0.9 }, [1, 0, 0], ORIGIN);
+
+    const service = build(stubLlm({ facts: [] }), repo, undefined, { longTermMemory: false });
+    await service.recall('anything');
+
+    // Off means "not consulted", not "erased". A local instance that flips the
+    // flag back on must find its store where it left it.
+    expect(repo.facts).toHaveLength(1);
+  });
+
+  it('remembers nothing, without a model call and without touching the funnel', async () => {
+    const repo = new FakeMemoryRepository();
+    const { llm, calls } = countingLlm({
+      facts: [{ text: PREFERENCE, kind: 'preference', importance: 0.9 }],
+    });
+
+    const result = await build(llm, repo, undefined, { longTermMemory: false }).remember(
+      EXCHANGE,
+      ORIGIN,
+    );
+
+    expect(result).toEqual({ stored: [], merged: [] });
+    expect(calls.count).toBe(0);
+    // Deliberately *not* counted as a skip. `skippedNoSelfReference` is evidence
+    // about what the extractor decided; folding "the feature is off" into it
+    // would make the funnel unreadable in exactly the case it exists to explain.
+    expect(repo.funnelCounts.skippedNoSelfReference).toBe(0);
+    expect(repo.funnelCounts.proposed).toBe(0);
+  });
+
+  it('does not run consolidation, which costs an embedding call per fact', async () => {
+    const repo = new FakeMemoryRepository();
+    await repo.insert({ text: PREFERENCE, kind: 'preference', importance: 0.9 }, [1, 0, 0], ORIGIN);
+    const { embeddings, calls } = stubEmbeddings();
+
+    const service = new LongTermMemoryService(
+      config({ longTermMemory: false }),
+      stubLlm({ facts: [] }),
+      embeddings,
+      repo,
+    );
+
+    expect(await service.consolidate()).toEqual({ merged: 0, forgotten: 0 });
+    expect(calls).toEqual([]);
+    expect(repo.facts).toHaveLength(1);
   });
 });

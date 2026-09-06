@@ -12,7 +12,12 @@ import { z } from 'zod';
 export const DEFAULT_DATABASE_PATH = './database/app.db';
 
 const llmProviderEnum = z.enum(['gemini', 'groq', 'openrouter', 'ollama']).default('gemini');
-const embeddingProviderEnum = z.enum(['gemini', 'ollama']).default('gemini');
+// `precomputed` is a **build-time** provider, not a runtime one: it replays vectors
+// from a committed artifact instead of calling anything, which is what makes the
+// Docker index build keyless and offline (PLAN.md §9). It can only answer for text
+// it has a vector for — the fixed corpus — so a server started with it fails on the
+// first query embedding, loudly and by design. See PrecomputedEmbeddingProvider.
+const embeddingProviderEnum = z.enum(['gemini', 'ollama', 'precomputed']).default('gemini');
 // Mirrors CorpusSource in src/common/types/knowledge.types.ts. Declared again rather
 // than imported so the env schema stays free of domain imports — it is parsed before
 // anything else exists, and a cycle here fails the boot in a very confusing way.
@@ -118,8 +123,29 @@ export const envSchema = z
     // --- Embedding provider ---
     EMBEDDING_PROVIDER: embeddingProviderEnum,
     EMBEDDING_API_KEY: z.string().optional(),
-    EMBEDDING_MODEL: z.string().min(1).default('bge-m3'),
-    EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1024),
+    // Defaulted to match EMBEDDING_PROVIDER's own default, which they did not.
+    // `bge-m3` at 1024d is an *Ollama* model, left behind when Ollama was the
+    // default provider; paired with the current default of `gemini` it produces a
+    // configuration that cannot work, and one that nothing local ever hit because
+    // `.env` supplies both. The Docker image has no `.env`, so §9 found it on the
+    // first container boot: the index identity guard refused to start against
+    // `gemini/bge-m3:1024`. An Ollama setup sets both explicitly — `.env.example`
+    // shows the pair — which is the right way round, because the provider that
+    // needs a key is the one whose defaults should be usable without one.
+    EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-001'),
+    EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(768),
+
+    /**
+     * The committed vectors `EMBEDDING_PROVIDER=precomputed` replays, written by
+     * `pnpm corpus:vectors`.
+     *
+     * The artifact carries its own model id and dimension count, and the
+     * provider reports *those* rather than the two variables above — so the
+     * `index_meta` identity written by a keyless build is the identity of the
+     * model that actually produced the numbers, not of whatever the build
+     * environment happened to have configured.
+     */
+    EMBEDDING_VECTORS_PATH: z.string().min(1).default('./corpus/index/embeddings.json'),
 
     // --- Ollama (used when LLM_PROVIDER=ollama or EMBEDDING_PROVIDER=ollama) ---
     OLLAMA_URL: z.url().default('http://localhost:11434'),
@@ -128,7 +154,6 @@ export const envSchema = z
     // --- Paths ---
     DATABASE_PATH: z.string().min(1).default(DEFAULT_DATABASE_PATH),
     KNOWLEDGE_PATH: z.string().min(1).default('./corpus/generated'),
-    PROMPTS_PATH: z.string().min(1).default('./prompts'),
     // Recorded agent runs, replayed over SSE for the §9 demo fallback and for
     // building the UI without spending model calls. Written by `pnpm capture:runs`.
     DEMO_RUNS_PATH: z.string().min(1).default('./fixtures/runs'),
@@ -248,6 +273,33 @@ export const envSchema = z
 
     // --- Memory (PLAN.md §5/M4.1) ---
 
+    /**
+     * Whether durable, cross-session memory runs at all (PLAN.md §5/M4.2).
+     *
+     * **Off on the public deployment, on everywhere else**, which is a §9
+     * decision rather than a tuning knob. `recall()` searches all of
+     * `memory_facts` with no visitor filter — crossing sessions *is* the M4.2
+     * feature, so a session filter would delete what the milestone
+     * demonstrates — and on a deployment with no sign-in, cross-session is also
+     * cross-visitor: a fact extracted from one person's run reaches the next
+     * person's planner prompt.
+     *
+     * What that actually exposes is narrow, because M6's `mentionsSelf` gate
+     * means a corpus question stores nothing at all. The one reachable case is
+     * a visitor writing a first-person sentence — which is exactly the case
+     * that would leak. So the flag costs almost nothing visible and closes the
+     * channel completely, and long-term memory becomes a local capability like
+     * live connectors rather than a deployed one.
+     *
+     * Off also settles an inconsistency: `MemoryController` refuses to serve
+     * fact bodies over HTTP while `memory_read` streams the nearest three to
+     * whoever asks the next question. With nothing stored, the two agree.
+     *
+     * Short-term memory (M4.1, the checkpointer) is unaffected — it is keyed by
+     * `sessionId` and never crossed a visitor boundary.
+     */
+    LONG_TERM_MEMORY: envBoolean('true'),
+
     // How many sessions the LangGraph checkpointer keeps. Oldest are pruned after
     // each run, on the same reasoning as TRACE_RETENTION_RUNS below and for a
     // sharper reason: a checkpoint is written on *every superstep*, carrying the
@@ -326,6 +378,66 @@ export const envSchema = z
       .int()
       .positive()
       .default(6 * 60 * 60 * 1000),
+
+    // --- Public surface (PLAN.md §9) ---
+
+    /**
+     * Rate limiting on `POST /agent/ask`.
+     *
+     * The endpoint is unauthenticated and CORS is deliberately open (see the
+     * comment in `main.ts`), so this is the only control standing between a
+     * public URL and the day's free-tier budget. `DEMO_MODE` keeps the deployed
+     * instance corpus-only, but that is a default protecting an open endpoint,
+     * not a control.
+     *
+     * The budget is denominated in *model calls*, not requests: one question
+     * costs ~4 of them against a free tier that answers ~20 per window, so the
+     * default of 5 questions per 10 minutes is roughly one visitor's share of
+     * the quota. `?demo=1` replays cost nothing and are exempt.
+     *
+     * An off switch rather than "set the number very high", because a limit
+     * expressed as a large number reads like a limit and is not one.
+     */
+    RATE_LIMIT_ENABLED: envBoolean('true'),
+    RATE_LIMIT_WINDOW_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10 * 60 * 1000),
+    RATE_LIMIT_MAX_ASKS: z.coerce.number().int().positive().default(5),
+
+    /**
+     * How many reverse-proxy hops sit in front of the API, as Express's
+     * `trust proxy` setting.
+     *
+     * This is load-bearing for the rate limit rather than cosmetic. Behind a
+     * platform proxy every request arrives from the proxy's address, so at 0
+     * the whole internet shares one bucket and the first visitor to spend their
+     * five questions locks out everyone else. Trusting *too much* is the
+     * opposite failure: `X-Forwarded-For` is client-supplied, so a hop count
+     * larger than the real chain lets a caller mint a fresh identity per request
+     * and the limit evaporates.
+     *
+     * 1 is right for a single platform proxy (Render, Northflank, Cloud Run, HF
+     * Spaces). Set 0 when the API is reached directly.
+     */
+    TRUST_PROXY_HOPS: z.coerce.number().int().nonnegative().default(1),
+
+    /**
+     * How long the recorded-run fallback stays armed after every configured
+     * provider has refused on quota (PLAN.md §9's "rate-limit resilience").
+     *
+     * A window rather than a probe because there is nothing free to probe with:
+     * finding out whether the quota came back costs a model call, which is the
+     * thing there is no budget for. So the run that hits the wall reports its
+     * failure honestly and arms the fallback; requests inside the window replay
+     * a recording instead, and the window simply expires.
+     */
+    QUOTA_FALLBACK_COOLDOWN_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10 * 60 * 1000),
 
     // --- Observability (PLAN.md §5/M3) ---
 

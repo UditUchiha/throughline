@@ -28,6 +28,9 @@ you need, not the whole file. Index below.
 | Check M5's "no node changes" claim | `git diff <m4-commit> -- src/agent/nodes/` — only `reflect`/`synthesize` should appear, and only for the untrusted fence |
 | Replay a recorded run (no model calls) | same, with `?demo=1` — see `GET /agent/demo` for what is available |
 | Re-record the demo fixtures | `pnpm capture:runs` (server must be running; `--list` to inspect, `--force` to re-capture) |
+| Rebuild the baked index (keyless) | `EMBEDDING_PROVIDER=precomputed pnpm corpus:index` — seconds, no model calls |
+| Is the vector artifact current? | `pnpm corpus:vectors --check` (free; CI runs it) · regenerate with `--from-index` |
+| Build + boot the deployment image | `docker build -t throughline . && docker run --rm -p 7860:7860 -e GEMINI_API_KEY=... -e EMBEDDING_API_KEY=... throughline` |
 | Regenerate corpus docs for one fact | `pnpm corpus:generate --only=fact.<id>` (needs `GEMINI_API_KEY`) |
 
 Node 22+, pnpm. Local Ollama on `:11434` is required for embeddings and chat
@@ -47,6 +50,14 @@ These describe the existing bar; match it.
   `src/repositories/ports/`, bound via DI tokens in `repositories.module.ts`.
 - **No abstractions before a second implementation exists** (PLAN.md §0.4).
 - Comments explain *why*, not *what*.
+- **Set `process.env` before importing anything that reaches `src/config/config.module.ts`.**
+  `@nestjs/config` reads the environment inside that file's `@Module` decorator, so it
+  snapshots at *import* time — a runner that assigns `process.env` in `main()` has already
+  missed its chance and will run against whatever was there before, silently. Load the module
+  graph with a deferred `require` after the environment is set (`await import()` does not work
+  — under `module: nodenext` TypeScript emits genuine ESM even from a CommonJS file and Node's
+  resolver rejects an extensionless specifier), and verify the settings landed rather than
+  assuming. This cost M6 its entire measurement; see `evals/harness/context.ts`.
 
 ## Anti-goals — do not build these (PLAN.md §2)
 
@@ -92,6 +103,7 @@ src/integrations/mcp/ MCP client host: connect → discover → allowlist → ad
 src/integrations/mcp/demo/ the in-process MCP server DEMO_MODE serves
 src/guardrails/   five deterministic checks in two stages; run live AND scored by evals (M6)
 src/agent/examples/ corpus/questions.yaml projected for the UI's one-click examples
+corpus/index/    committed embedding vectors — what makes the Docker index build keyless (§9)
 src/observability/ LangSmith bridge, TraceCollector (span tree), UsageService (cost)
 ui/               Next.js UI — its own package and toolchain, deployed separately
 fixtures/runs/    captured agent runs (committed); written by `pnpm capture:runs`
@@ -152,6 +164,36 @@ Five UI traps worth not re-learning:
   style labelled with the raw name, and `EvidencePanel`'s `groupBySource` appends unknown
   sources rather than filtering them out, which was the same bug silently.
 
+## Deployment (§9) — what is decided
+
+Built 2026-09-06; the image has been built, booted and exercised in a container, and CI does the
+same on every push. Six things to know before touching any of it:
+
+- **The index is baked into the image, and that is load-bearing rather than an optimisation.**
+  Every free host has an ephemeral filesystem; on Render's free tier a restart is every fifteen
+  idle minutes. Indexing at boot would cost ~172 embedding calls per wake against a ~20/window
+  free tier — the instance would come back rate-limited, not just slow. `indexed=0 skipped=172`
+  in the boot log is the assertion CI makes.
+- **The build is keyless because the vectors ship, not the database.**
+  `corpus/index/embeddings.json` is ~700KB keyed by a hash of each chunk's text;
+  `EMBEDDING_PROVIDER=precomputed` replays it. Shipping the `.db` instead would be 6× larger
+  (sqlite-vec allocates a full 1024-row chunk) and opaque. `precomputed` is **build-time only** —
+  a server started with it fails on the first question, because a question is not in the artifact.
+  Regenerate with `pnpm corpus:vectors --from-index` (free) whenever the corpus or `CHUNK_SIZE`
+  changes; `--check` runs in CI and catches forgetting.
+- **The image builds a fresh database.** That is what keeps a developer's traces and checkpoints
+  (~9.6MB of the local 14MB file) out of it — there is nothing to remember to clear.
+- **`LONG_TERM_MEMORY=false` on the public instance.** `recall()` has no visitor filter and
+  crossing sessions *is* the M4.2 feature, so a session filter would delete what the milestone
+  shows. Long-term memory is a local capability, like live connectors. Off means "not consulted",
+  not "erased".
+- **`POST /agent/ask` is rate limited**, 5 questions / 10 min / IP, `?demo=1` exempt.
+  `TRUST_PROXY_HOPS` is load-bearing: at 0 behind a proxy every visitor shares one bucket.
+- **The quota fallback arms on `AllProvidersFailedError.quotaOnly` only.** A timeout or an
+  unreachable provider is an outage, and replaying a fixture for one would present a broken
+  system as a working demo. It diverts the *next* request, not the failing one, because
+  `run_replayed` is contractually a replay's first event.
+
 ## Known state
 
 M0–M6 are done: retrieval is proven end-to-end (172/172 documents indexed), the agent is
@@ -159,7 +201,15 @@ reachable at `POST /agent/ask` (SSE), `ui/` renders the stream, runs are traced 
 sqlite (`runs` + `run_spans`, bounded by `TRACE_RETENTION_RUNS`) and, when a key is set, to
 LangSmith — the agent remembers both within a session and across sessions, MCP connectors join
 the same tool registry, and an eval suite scores the whole thing against the answer key with a
-CI gate on top. **What remains is §9 deployment.**
+CI gate on top. §9 deployment is built — image, blueprint, rate limit, quota fallback — and
+**what remains is pushing it to a host, which is an account action rather than a code one.**
+
+⚠️ **M6's numbers were measured with the demo connector live while recording
+`connectors: false`.** §9 found the cause: `@nestjs/config` snapshots `process.env` inside the
+`@Module` decorator, so `evals/harness/context.ts` importing `AppModule` before calling
+`applyEnvironment()` meant none of its settings applied — the isolated database was created and
+never written to either. Fixed, with a `verifyEnvironment` check that throws rather than trusting
+the flags; **the numbers below are owed a re-run**, which is quota rather than work.
 
 M6's numbers, over all 59 questions (see README and HANDOFF): answer correctness **61.0%**
 (96.6% with partial credit), citation support 88.4%, abstention correctness 100%, recall@k
@@ -303,8 +353,8 @@ Three things about tracing worth knowing before touching it:
 
 Still open: `LLM_PROVIDER=ollama` has never been exercised; **no third-party MCP server has
 been connected** — the stdio path is written but every live run so far went through the
-in-process demo server; and `POST /agent/ask` has no rate limit with CORS open to any origin,
-which M5 makes sharper rather than looser and which needs revisiting before deployment.
+in-process demo server; and the deployment has not been pushed to a host yet. (`POST /agent/ask`
+is rate limited as of §9; CORS stays open deliberately — see the Deployment section above.)
 
 **`HANDOFF.md` is the orientation doc** — read it before PLAN.md if you are picking this up
 cold. There is no CI yet; it arrives in M6.

@@ -1,9 +1,20 @@
 import { Controller, Get, Inject } from '@nestjs/common';
+import { AppConfigService } from '../config/app-config.service';
 import { MEMORY_REPOSITORY } from '../repositories/ports/tokens';
 import type { MemoryRepository } from '../repositories/ports/memory.repository';
 import { retentionRate, type MemoryFunnel } from './memory.types';
 
 export interface MemoryStats {
+  /**
+   * Whether durable memory is switched on at all (`LONG_TERM_MEMORY`).
+   *
+   * Reported because without it a funnel of zeros is ambiguous, and the two
+   * readings are opposites: "nothing has been worth remembering" is a result,
+   * "the feature is off" is a configuration. The public deployment runs with it
+   * off (PLAN.md §9), so the endpoint that a README quotes has to say which one
+   * a visitor is looking at.
+   */
+  enabled: boolean;
   funnel: MemoryFunnel;
   /**
    * `stored / proposed`, or null before anything has been proposed. Null rather
@@ -29,12 +40,16 @@ export interface MemoryStats {
  */
 @Controller('memory')
 export class MemoryController {
-  constructor(@Inject(MEMORY_REPOSITORY) private readonly facts: MemoryRepository) {}
+  constructor(
+    private readonly config: AppConfigService,
+    @Inject(MEMORY_REPOSITORY) private readonly facts: MemoryRepository,
+  ) {}
 
   @Get('stats')
   async stats(): Promise<MemoryStats> {
     const funnel = await this.facts.funnel();
     return {
+      enabled: this.config.longTermMemory,
       funnel,
       retentionRate: retentionRate(funnel),
       factCount: await this.facts.countFacts(),

@@ -1,0 +1,112 @@
+# Render blueprint for the API (PLAN.md §9).
+#
+# Committed so the deployment is reviewable rather than a set of remembered
+# clicks in a dashboard — the same reason the eval suite records its own
+# settings. Secrets are the exception: `sync: false` means Render prompts for
+# the value and stores it, and it never appears here.
+#
+# ## Why Render, when §9 says not to
+#
+# §9 rejected Render by name for its cold start and chose Hugging Face Spaces.
+# That table was written at planning time and §9 itself says to re-verify it,
+# which turned out to matter: **HF now requires PRO ($9/mo) to create a Docker
+# Space** — free accounts get Static Spaces only — and Koyeb's free tier closed
+# to new signups after the Mistral acquisition. Of what is left, Render is the
+# only one that is free *and* needs no credit card. Cloud Run and Northflank are
+# both better technically and both want a card on file.
+#
+# So the cold start is not a thing that was overlooked; it is the price of the
+# zero-cost constraint now that the cheaper option is gone. Three things make it
+# survivable, and the first is the one that matters:
+#
+#   * **The index is baked into the image.** A cold start is a container start,
+#     not a reindex — the boot pass skips all 172 documents by checksum and makes
+#     zero embedding calls. Without that, every wake would spend ~172 calls
+#     against a free tier that answers ~20 per window, and the instance would
+#     come back rate-limited rather than merely slow.
+#   * **The UI fetches `/agent/examples` on load**, which is what wakes the
+#     service. The spin-up overlaps with the visitor reading the page instead of
+#     following their first question.
+#   * **The UI says so.** `ui/components/RunBanners.tsx` names the cold start
+#     rather than showing a generic connection error for the ~50s it lasts.
+#
+# ## Deploying
+#
+#   1. Render → New → Blueprint → point at this repo.
+#   2. Supply GEMINI_API_KEY, GROQ_API_KEY and EMBEDDING_API_KEY when prompted.
+#      EMBEDDING_API_KEY is the Gemini key again, under the name the embedding
+#      provider reads — it falls back to LLM_API_KEY, *not* to GEMINI_API_KEY.
+#   3. Set the UI's NEXT_PUBLIC_API_URL to the resulting service URL.
+#
+# The image itself is host-neutral: `PORT` comes from the environment, so the
+# same Dockerfile runs on Northflank, Cloud Run or a Docker Space unchanged.
+
+services:
+  - type: web
+    name: throughline-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+
+    envVars:
+      # Render injects PORT and expects the service to bind it. `AppConfigService`
+      # already reads it and `main.ts` binds 0.0.0.0, so nothing is pinned here —
+      # a hardcoded PORT would override the platform and fail the health check.
+
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_PROVIDERS
+        value: groq
+
+      # Prompted for on first deploy and stored by Render. Never in this file.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: EMBEDDING_API_KEY
+        sync: false
+
+      # Must match the identity baked into the image's index, or the boot-time
+      # guard refuses to start. These are the schema defaults; they are written
+      # out anyway because a silent default and a deliberate choice look the same
+      # in a dashboard.
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: EMBEDDING_DIMENSIONS
+        value: '768'
+
+      # Connectors served from the bundled synthetic vault, which is what keeps
+      # this a corpus-only surface. Not the same thing as `?demo=1`: the whole
+      # live pipeline still runs.
+      - key: DEMO_MODE
+        value: 'true'
+
+      # Off here and nowhere else — see the Dockerfile and PLAN.md §9. Long-term
+      # memory has no visitor scope, and this instance has no sign-in.
+      - key: LONG_TERM_MEMORY
+        value: 'false'
+
+      # One platform proxy in front. At 0 every visitor would share one rate-limit
+      # bucket; higher would let a caller forge X-Forwarded-For and escape it.
+      - key: TRUST_PROXY_HOPS
+        value: '1'
+      - key: RATE_LIMIT_ENABLED
+        value: 'true'
+      - key: RATE_LIMIT_WINDOW_MS
+        value: '600000'
+      - key: RATE_LIMIT_MAX_ASKS
+        value: '5'
+
+      # The filesystem is ephemeral on the free plan, so traces live only until the
+      # next spin-down. That is acceptable and is why no database was provisioned:
+      # `?demo=1` writes no trace at all, a session dies with the tab, and the one
+      # feature that wanted durable storage is switched off above. Bounded anyway,
+      # because an instance that stays up for a week should not grow without limit.
+      - key: TRACE_RETENTION_RUNS
+        value: '200'
+      - key: CHECKPOINT_RETENTION_SESSIONS
+        value: '50'

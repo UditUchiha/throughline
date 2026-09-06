@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EnvConfig, McpServerConfig } from './env.schema';
 
 export type LlmProvider = 'gemini' | 'groq' | 'openrouter' | 'ollama';
-export type EmbeddingProviderType = 'gemini' | 'ollama';
+export type EmbeddingProviderType = 'gemini' | 'ollama' | 'precomputed';
 
 @Injectable()
 export class AppConfigService {
@@ -85,6 +85,10 @@ export class AppConfigService {
     return this.configService.get('EMBEDDING_DIMENSIONS', { infer: true });
   }
 
+  get embeddingVectorsPath(): string {
+    return this.configService.get('EMBEDDING_VECTORS_PATH', { infer: true });
+  }
+
   // --- Ollama ---
 
   get ollamaUrl(): string {
@@ -111,10 +115,6 @@ export class AppConfigService {
 
   get corpusQuestionsPath(): string {
     return this.configService.get('CORPUS_QUESTIONS_PATH', { infer: true });
-  }
-
-  get promptsPath(): string {
-    return this.configService.get('PROMPTS_PATH', { infer: true });
   }
 
   // --- Indexing ---
@@ -194,6 +194,10 @@ export class AppConfigService {
     return this.configService.get('MEMORY_DEDUP_DISTANCE', { infer: true });
   }
 
+  get longTermMemory(): boolean {
+    return this.configService.get('LONG_TERM_MEMORY', { infer: true });
+  }
+
   get memoryTopK(): number {
     return this.configService.get('MEMORY_TOP_K', { infer: true });
   }
@@ -208,6 +212,28 @@ export class AppConfigService {
 
   get memoryConsolidationIntervalMs(): number {
     return this.configService.get('MEMORY_CONSOLIDATION_INTERVAL_MS', { infer: true });
+  }
+
+  // --- Public surface (PLAN.md §9) ---
+
+  get rateLimitEnabled(): boolean {
+    return this.configService.get('RATE_LIMIT_ENABLED', { infer: true });
+  }
+
+  get rateLimitWindowMs(): number {
+    return this.configService.get('RATE_LIMIT_WINDOW_MS', { infer: true });
+  }
+
+  get rateLimitMaxAsks(): number {
+    return this.configService.get('RATE_LIMIT_MAX_ASKS', { infer: true });
+  }
+
+  get trustProxyHops(): number {
+    return this.configService.get('TRUST_PROXY_HOPS', { infer: true });
+  }
+
+  get quotaFallbackCooldownMs(): number {
+    return this.configService.get('QUOTA_FALLBACK_COOLDOWN_MS', { infer: true });
   }
 
   // --- Observability ---

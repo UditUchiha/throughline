@@ -5,7 +5,7 @@ Orientation document for a new agent or contributor picking this project up cold
 acceptance criteria; `CLAUDE.md` is the always-loaded rules digest. This file tells you
 where you are, what has actually been proven, and what to do next.
 
-_Last updated: 2026-09-06 (M6 built — the eval suite, the guardrails and the CI gate. M0–M6 are done; what remains is §9 deployment)._
+_Last updated: 2026-09-06 (§9 built — the image, the blueprint, the rate limit and the quota fallback. M0–M6 and §9 are done in the repo; what remains is pushing to a host, and re-running the evals — see the warning below)._
 
 ---
 
@@ -125,7 +125,8 @@ hook auto-runs `pnpm corpus:generate --verify-only` on ledger edits.
 | **M4.1 short-term memory** | ✅ | LangGraph checkpointer keyed by `sessionId`; a `recall` node ahead of `triage` rewrites follow-ups into standalone questions. Verified live over three chained turns. |
 | **M4.2 long-term memory** | ✅ | Extract → score → dedup → store, funnel counters at `GET /memory/stats`, consolidation job. Verified live across sessions. |
 | **M5 MCP connectors** | ✅ | `McpHostService` discovers tools at boot and registers them into the existing registry; no node changed. `DEMO_MODE` (default on) serves a real in-process MCP server. Security section built and tested. Verified live both ways. |
-| **M6 evals + guardrails + CI** | ✅ | `evals/` written from scratch — it never existed. `src/guardrails/` runs five deterministic checks on every live request and the suite scores the verdicts the pipeline produced. Two workflows; the conventions gate is green on day one. Both M5 hand-offs done, both memory questions answered from a real run. |
+| **M6 evals + guardrails + CI** | 🟡 | `evals/` written from scratch — it never existed. `src/guardrails/` runs five deterministic checks on every live request and the suite scores the verdicts the pipeline produced. Two workflows; the conventions gate is green on day one. Both M5 hand-offs done, both memory questions answered from a real run. **But the harness's environment isolation never took effect — the numbers were measured with the connector live. Fixed; a re-run is owed.** See §4's warning. |
+| **§9 deployment** | ✅ | `Dockerfile` (index baked in, keyless build from committed vectors), `.dockerignore`, `render.yaml`. `POST /agent/ask` rate limited; `LONG_TERM_MEMORY=false` publicly; the recorded-run fallback wired to an exhausted quota at last. Image built, booted and exercised in a container — which is how three latent boot failures were found. A CI job repeats it on every push. Not pushed to a host yet: that needs an account, not code. |
 
 ### What a live run actually does (verified 2026-09-02)
 
@@ -521,6 +522,104 @@ the decision from a post-gate run.
   either side of each run, so two in flight interleave. Suite totals survive; "how many runs
   proposed a candidate" does not. The harness warns.
 
+### ⚠️ The eval numbers were measured with the connector live (found in §9)
+
+`@nestjs/config` reads `process.env` inside the `@Module` decorator of
+`src/config/config.module.ts`, so it snapshots the environment when that file is **imported**,
+not when Nest boots. `evals/harness/context.ts` imported `AppModule` at the top of the file and
+called `applyEnvironment()` afterwards — so every variable it set went into a `process.env`
+nothing would read again.
+
+Verified against the committed artifacts rather than reasoned about:
+
+- `evals/results-latest.json` records `"connectors": false` and contains 14 references to
+  `obsidian_search_notes`. **Two of 59 questions retrieved from the demo vault** —
+  `q.tariq-hire-and-start` and `q.ceo-favorite-hobby`, the second an abstention question.
+  Neither cited the vault evidence, so the headline scores are probably intact; but the planner
+  saw a four-tool menu on all 59, which is not the run the file describes.
+- `database/evals.db` and `database/app.db` are byte-identical, same 81 runs: the isolated copy
+  was made and never written to. Eval traffic went into the live trace store.
+- `LANGSMITH_TRACING=false` did not apply either.
+
+**Fixed two ways, because one was not enough.** `AppModule` is loaded with a deferred `require`
+after the environment is set — `await import()` cannot be used here, since under
+`module: nodenext` TypeScript emits a genuine ESM dynamic import even from a CommonJS file and
+Node's ESM resolver rejects an extensionless specifier, which fails at runtime having looked
+correct. And `verifyEnvironment` reads the settings back off the booted `AppConfigService` and
+throws if they disagree, before the suite spends ~350 model calls. **Trusting the flag is what
+failed; checking it costs nothing.**
+
+**What is owed: a re-run.** It is quota, not work. Until then the README's figures should be
+read as "with the demo connector live". The same fix means `pnpm eval --baseline=single-shot`,
+still outstanding from M6, will now actually run isolated.
+
+This is worth remembering as a class of bug rather than an incident: *a configuration that
+silently does not apply produces numbers that are plausible, internally consistent, and about
+something else.*
+
+### §9 deployment — what was decided, and what building it found
+
+The image, the blueprint, the rate limit and the quota fallback are built; nothing is pushed to
+a host yet, because that needs an account rather than code.
+
+**The host changed, because the free tier did.** §9 chose Hugging Face Spaces and rejected
+Render by name for its cold start. Re-verifying on 2026-09-06 — which §9 itself instructs — found
+that **HF now requires PRO ($9/mo) to create a Docker Space** (free accounts get Static Spaces
+only; rolled out June–August 2026, existing Spaces grandfathered), and that **Koyeb's free tier
+closed to new signups** after the Mistral acquisition. Render is what is left that is free and
+needs no card, so the cold start is now the price of the zero-cost constraint rather than a
+mistake. Northflank (always-on, card verified but not charged) and Cloud Run are both better if
+a card on file is acceptable.
+
+**Two decisions taken before deploying:**
+
+- **Long-term memory does not ship publicly** (`LONG_TERM_MEMORY=false`). `recall()` has no
+  visitor filter, and crossing sessions *is* the M4.2 feature — so a session filter would delete
+  what the milestone demonstrates, while on a URL with no sign-in cross-session is also
+  cross-visitor. It stays a local capability, like live connectors. The exposure closed is
+  narrow, because `mentionsSelf` means a corpus question stores nothing; the one reachable case
+  is a visitor writing a first-person sentence, which is precisely the case that would leak.
+  `GET /memory/stats` now reports `enabled`, so a funnel of zeros is not read as a result.
+- **`POST /agent/ask` is rate limited** — 5 questions / 10 min / IP, `?demo=1` exempt because a
+  replay costs nothing and is the fallback a visitor is pushed towards. CORS stays open
+  deliberately: it decides which origins a *browser* trusts and does nothing about a caller that
+  is not one.
+
+**Four things the container found that the source could not.** This is why §9 asks for the image
+to be *booted*, not built:
+
+1. **`SQLITE_READONLY_DIRECTORY` on first boot.** `database/` was root-owned from the builder
+   stage and sqlite in WAL mode creates `-wal`/`-shm` beside the file, so `USER node` could not
+   open it. The build was green. `COPY --chown=node:node` fixes it.
+2. **`EMBEDDING_MODEL` defaulted to `bge-m3` at 1024d while `EMBEDDING_PROVIDER` defaulted to
+   `gemini`** — a pair that cannot work, left over from when Ollama was the default, and
+   invisible locally because `.env` supplies both. The container has no `.env`, so the identity
+   guard refused to boot against `gemini/bge-m3:1024`. The defaults now match.
+3. **The identity guard read the config while the indexer wrote the provider.** Equivalent for
+   gemini and ollama, wrong for `precomputed` — which reports the identity of the model that
+   produced the vectors it replays. Both sides now read the provider, which is what the guard's
+   own comment always claimed.
+4. **`corpus/generated` is not optional in the runtime image.** Without it the boot reindex finds
+   every indexed path missing and `removeDeletedArticles` deletes the baked index — a healthy
+   startup destroying the thing the image exists to ship.
+
+**The keyless build is back, and §11.4 is closed rather than reopened.**
+`corpus/index/embeddings.json` (~700KB, committed) holds one vector per chunk keyed by a hash of
+the chunk text; `EMBEDDING_PROVIDER=precomputed` replays it, so the image indexes 172 documents
+in 0.8s with no key. Shipping vectors rather than the `.db` is 6× smaller — sqlite-vec allocates
+a full 1024-row chunk regardless — and makes staleness loud instead of silent. Do **not** write
+the local in-process provider §11.4 originally specified: it would invalidate the committed
+index, every measured distance in `docs/`, and the M6 numbers, to buy a property §9 already has.
+
+**The degraded demo was half-built and unreachable.** The event contract has carried
+`run_replayed.reason: 'quota_exhausted'` since M2 and `ReplayBanner` renders it, but nothing in
+the API ever set it. `QuotaFallbackService` arms only on a typed `AllProvidersFailedError` whose
+failures were *all* quota — a timeout or an unreachable provider is an outage, and a fixture
+served for one presents a broken system as a working demo. The failing run still reports its own
+failure; the *next* request replays, because `run_replayed` is contractually a replay's first
+event and the UI's reducer would otherwise merge the abandoned run's evidence into the
+recording's.
+
 ### ⚠️ What is still unproven
 
 - **`LLM_PROVIDER=ollama` has never run** — no local Ollama. Note the *substance* of that M1
@@ -553,10 +652,14 @@ the decision from a post-gate run.
   embedding model changes, because the conclusion is model-specific like every other distance
   in this project.
 
-`pnpm lint`, `pnpm build` and `pnpm test` pass clean (**285 tests across 29 suites**), as do
+`pnpm lint`, `pnpm build` and `pnpm test` pass clean (**325 tests across 31 suites**), as do
 `cd ui && pnpm lint`, `cd ui && pnpm typecheck` and `cd ui && pnpm test` (20 tests), and
 `pnpm check:conventions`. CI arrived in M6: `.github/workflows/ci.yml` runs all of that with no
-API key, and `evals.yml` runs the nine-question eval subset against `evals/baseline.json`.
+API key, and `evals.yml` runs the nine-question eval subset against `evals/baseline.json`. §9
+added two more keyless CI checks and a third job: the vector artifact's coverage
+(`pnpm corpus:vectors --check`), a keyless index build, and a `docker` job that builds the image,
+boots it, streams a recorded run through it and asserts `indexed=0 skipped=172` — because a green
+build is not evidence that the thing boots, which is how the three failures above were found.
 
 ### Dead ends — things already tried that did not work
 
@@ -879,9 +982,11 @@ whenever both modes are present in `results-latest.json`.
 2. **Answer correctness is 61%** (96.6% with partial credit). Most misses are omissions on
    multi-fact questions rather than wrong facts; `renderFailures` names them and
    `evals/.cache/runs/agent/<id>.json` has the full answer and the judge's reasoning.
-3. **§9 deployment.** Still the last milestone. Two things must be decided before it, both in
-   the known-gaps list below: the open unauthenticated endpoint, and whether long-term memory
-   ships at all on a public instance.
+3. ~~**§9 deployment.**~~ Built 2026-09-06 — see the section above. Both decisions it was
+   waiting on are made: the endpoint is rate limited, and long-term memory does not ship
+   publicly. **What is left is pushing it to a host**, which needs a Render account rather than
+   any code: `render.yaml` is the blueprint and the image has already been built, booted and
+   exercised in a container.
 4. **Outstanding from M5, and small:** no third-party MCP server has been connected. Point
    `MCP_SERVERS` at a published Obsidian server, watch one run, record the GIF. The stdio path
    is written and typechecked; it has just never met a foreign server.
@@ -901,14 +1006,23 @@ https://apac.smith.langchain.com/public/14204394-ae03-4e47-afb0-8ada1c2dd735/r/0
 
   **Do not "just scope it to the session".** Crossing sessions is the M4.2 feature — the
   demonstrated behaviour is a *new* session being answered out of a previous one's facts — so
-  a session filter deletes the thing the milestone was built to show. Scoping to a visitor
-  needs an identity the system does not have and §1 says it must not ask for. The real options
-  are (a) disable long-term memory on the public deployment and keep it a local capability,
-  like live connectors, or (b) mint a per-browser id and accept that it is a weak boundary. It
-  is a §9 decision and it should be made deliberately, before deploy.
+  a session filter deletes the thing the milestone was built to show.
 
-- **`POST /agent/ask` has no rate limit and CORS is open to any origin** (`main.ts`). Both were
-  deliberate for local dev and both are still open. This is the endpoint a public UI now points
+  **Decided in §9: option (a).** `LONG_TERM_MEMORY=false` on the public deployment; long-term
+  memory stays a local capability, like live connectors. The inconsistency above dissolves with
+  it — with nothing stored, `MemoryController` and `memory_read` agree. `GET /memory/stats`
+  reports `enabled` so a funnel of zeros cannot be read as "it keeps nothing". Option (b), a
+  per-browser id in `localStorage`, is written up in PLAN.md §9 and is the thing to reach for
+  only if the deployed instance needs to *show* cross-session recall.
+
+- ~~**`POST /agent/ask` has no rate limit**~~ — closed in §9. `AskThrottlerGuard` allows 5
+  questions per 10 minutes per IP, budgeted in model calls rather than requests, with `?demo=1`
+  exempt. **`TRUST_PROXY_HOPS` is the half that is easy to get wrong**: behind a platform proxy
+  at 0, every visitor shares one bucket and the first to spend five questions locks out the
+  rest — a limit working exactly as designed and useless. CORS stays `origin: true`
+  deliberately; it governs which origins a *browser* hands the response to and offers nothing
+  against a caller that is not one, so it was never the control here. *(Original note, for the
+  reasoning:)* This is the endpoint a public UI now points
   at, so it needs revisiting before deployment — it was left alone in M2 because rate limiting
   is a new dependency and a scope call, not because it is fine. **M5 makes this sharper:** an
   unauthenticated endpoint that can reach a live MCP server is a different proposition from one
@@ -926,9 +1040,11 @@ https://apac.smith.langchain.com/public/14204394-ae03-4e47-afb0-8ada1c2dd735/r/0
   for free the day that lands.
 - ~~`AgentRunStore` is in-memory and capped at 100 runs.~~ Closed in M3 — runs and spans go
   to sqlite, and failed runs are captured too, which the in-memory store never did.
-- **§9 still needs a decision about the baked image.** `TRACE_RETENTION_RUNS` bounds the
-  table, but a bounded set of *your development questions* still ships inside
-  `database/app.db`. Either clear the trace tables when baking, or accept it.
+- ~~**§9 still needs a decision about the baked image.**~~ Closed by construction: the image
+  builds a *fresh* database from the corpus plus the committed vectors, so a developer's traces
+  and checkpoints — ~9.6MB of the local 14MB file, at measurement — never enter it and there is
+  nothing to remember to clear. `.dockerignore` keeps `database/` out of the build context as
+  well, so the question cannot come back.
 - ~~`POST /agent/ask` does not stop the run when the client hangs up.~~ Fixed 2026-09-05, and
   the cause is worth keeping: **`request.on('close')` is not a disconnect signal.** Since Node
   16 an `IncomingMessage` emits `close` when the request stream *completes* — i.e. the moment

@@ -10,11 +10,14 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { GuardrailService } from '../guardrails/guardrail.service';
 import { AgentGraphService } from './agent-graph.service';
+import { AskThrottlerGuard, isDemoReplay } from './ask-throttler.guard';
+import { QuotaFallbackService } from './quota-fallback.service';
 import { TRACE_REPOSITORY } from '../repositories/ports/tokens';
 import type { TraceRepository } from '../repositories/ports/trace.repository';
 import type { PersistedRun, RunSpan } from '../common/types/trace.types';
@@ -35,6 +38,7 @@ export class AgentController {
     private readonly replay: RunReplayService,
     private readonly examples: ExampleQuestionsService,
     private readonly guardrails: GuardrailService,
+    private readonly quota: QuotaFallbackService,
   ) {}
 
   /**
@@ -51,6 +55,11 @@ export class AgentController {
    * same event stream on purpose — a demo that travels a different code path
    * stops resembling the thing it demonstrates.
    */
+  // On this route alone, not the controller. The two GETs read committed files
+  // and cost nothing a visitor could exhaust; this is the one that spends the
+  // day's model-call budget, and a limit that also throttles the example list
+  // would break the page for someone who has not asked anything yet.
+  @UseGuards(AskThrottlerGuard)
   @Post('ask')
   async ask(
     @Body(new ZodValidationPipe(askRequestSchema)) body: AskRequest,
@@ -86,8 +95,16 @@ export class AgentController {
     response.on('close', () => controller.abort());
 
     try {
-      if (demo === '1' || demo === 'true') {
-        await this.streamRecorded(body.question, write, controller.signal);
+      if (isDemoReplay(demo)) {
+        await this.streamRecorded(body.question, write, 'requested', controller.signal);
+        return;
+      }
+
+      // Checked before the graph runs, not after it fails, so `run_replayed`
+      // stays the first event the client sees — which is what stops a recording
+      // from being mistaken for a live run. See QuotaFallbackService.
+      if (this.quota.isOpen && this.replay.find(body.question)) {
+        await this.streamRecorded(body.question, write, 'quota_exhausted', controller.signal);
         return;
       }
 
@@ -99,7 +116,9 @@ export class AgentController {
         sink: write,
         signal: controller.signal,
       });
+      this.quota.recordSuccess();
     } catch (error) {
+      this.quota.recordFailure(error);
       // The graph has already emitted `run_failed` to the sink, so the client
       // knows; this is only about not leaving the request hanging.
       this.logger.error(`Agent run failed: ${error instanceof Error ? error.message : error}`);
@@ -162,6 +181,7 @@ export class AgentController {
   private async streamRecorded(
     question: string,
     write: (event: EmittedAgentEvent) => void,
+    reason: 'requested' | 'quota_exhausted',
     signal: AbortSignal,
   ): Promise<void> {
     const fixture = this.replay.find(question);
@@ -185,7 +205,7 @@ export class AgentController {
       return;
     }
 
-    await this.replay.replay(fixture, write, { reason: 'requested', signal });
+    await this.replay.replay(fixture, write, { reason, signal });
   }
 
   private openEventStream(response: Response): (event: EmittedAgentEvent) => void {

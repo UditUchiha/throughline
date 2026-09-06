@@ -33,7 +33,40 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M4.1 — short-term memory** | ✅ Done | LangGraph checkpointer (`@langchain/langgraph-checkpoint-sqlite`) keyed by `sessionId` over the existing connection; a `recall` node ahead of `triage` resolves follow-ups against the checkpointed turns. `sessionId` appended to `run_started` and plumbed through the UI, which had never sent one. `memory_read` / `memory_written` now carry real refs. Retention bounded by `CHECKPOINT_RETENTION_SESSIONS`. |
 | **M4.2 — long-term memory** | ✅ Done | `LongTermMemoryService` — extract → score → dedup → store, with funnel counters at `GET /memory/stats`; consolidation job merges near-duplicates and forgets facts unused past `MEMORY_TTL_DAYS`. Facts get their own table + vec index rather than living in `chunks` (see the deviation below). Verified live across sessions. |
 | **M5 — MCP connectors** | ✅ Done | `McpHostService` connects to configured servers at boot, discovers their tools and registers them into the existing registry. **No file under `src/agent/nodes/` changed** — the M1 tool shape held; the only structural change was making the `AGENT_TOOLS` factory async. `DEMO_MODE` (default on) serves a real in-process MCP server over the SDK's in-memory transport, so the credential-free demo exercises the whole path rather than bypassing it. Security section built: allowlisted tool surface, schema-validated arguments, retrieved content fenced as untrusted, and 3 adversarial corpus documents carrying real payloads. Verified live both ways — the planner chose the connector unprompted and cited it, and an injected document was described rather than obeyed. |
-| **M6 — evals + guardrails + CI** | 🟡 Built; two criteria quota-blocked | `evals/` written from scratch (it never existed — see the deviation below), `src/guardrails/` with five deterministic checks running on every live run *and* scored by the suite, and two GitHub Actions workflows. Both M5 jobs are done: injection resistance is scored deterministically over the runs that actually retrieved an adversarial document, and the harness runs with connectors **off** for a stated reason. Both memory questions from §5/M6.1 are answered from a real run rather than estimated. Numbers, and the three findings the first run surfaced, are in the README and in HANDOFF. **Two acceptance criteria are outstanding, both blocked on quota rather than code** — the agent-vs-baseline delta (~118 model calls) and the judge-agreement figure (20 calls). The 59-question agent pass exhausted the day's free tier on both configured providers; everything for both is written and tested, and failed runs are not cached so a re-run pays only for what is missing. See the M6 criteria below. |
+| **M6 — evals + guardrails + CI** | 🟡 Built; two criteria quota-blocked, **and the committed numbers need re-running** | `evals/` written from scratch (it never existed — see the deviation below), `src/guardrails/` with five deterministic checks running on every live run *and* scored by the suite, and two GitHub Actions workflows. Both M5 jobs are done: injection resistance is scored deterministically over the runs that actually retrieved an adversarial document, and the harness runs with connectors **off** for a stated reason. Both memory questions from §5/M6.1 are answered from a real run rather than estimated. Numbers, and the three findings the first run surfaced, are in the README and in HANDOFF. **Two acceptance criteria are outstanding, both blocked on quota rather than code** — the agent-vs-baseline delta (~118 model calls) and the judge-agreement figure (20 calls). The 59-question agent pass exhausted the day's free tier on both configured providers; everything for both is written and tested, and failed runs are not cached so a re-run pays only for what is missing. See the M6 criteria below. **Separately, §9 found that the harness's environment isolation never took effect** — see the warning below; the numbers were measured with the demo connector live while recording `connectors: false`. |
+| **§9 — deployment** | ✅ Built | Dockerfile (index baked in, keyless build via committed vectors), `render.yaml`, rate limit on `POST /agent/ask`, long-term memory off publicly, and the recorded-run fallback wired to an exhausted quota. Image built, booted and exercised in a container; a CI job now does the same on every push. Not yet pushed to a host — that is an account action, not a code one. |
+
+> [!WARNING]
+> **The eval harness's environment isolation never took effect, for the whole of M6** (found
+> 2026-09-06 while building §9). `@nestjs/config` reads `process.env` inside the `@Module`
+> decorator of `src/config/config.module.ts`, so it snapshots the environment when that file is
+> *imported*. `evals/harness/context.ts` imported `AppModule` at the top of the file and only
+> then called `applyEnvironment()` — so every setting it made was written into a `process.env`
+> nobody would read again.
+>
+> Three consequences, all verified against the committed artifacts rather than reasoned about:
+>
+> 1. **The suite ran with connectors ON while recording `connectors: false`.**
+>    `evals/results-latest.json` says `"connectors": false` and contains 14 references to
+>    `obsidian_search_notes`. Two of 59 questions retrieved from the demo vault —
+>    `q.tariq-hire-and-start` and `q.ceo-favorite-hobby`, the second an abstention question.
+>    Neither cited the vault evidence, so the headline scores are probably intact; but the
+>    planner saw a four-tool menu on all 59, not the three the results describe. This is exactly
+>    the failure `evals/README.md` argues against, arrived at by a different route.
+> 2. **Eval traffic went into `database/app.db`,** not the isolated copy. `database/evals.db` and
+>    `database/app.db` are byte-identical with the same 81 runs: the copy was made and then never
+>    written to.
+> 3. `LANGSMITH_TRACING=false` did not apply either.
+>
+> **Fixed**: `AppModule` is now loaded with a deferred `require` after the environment is set
+> (`await import()` cannot be used — under `module: nodenext` TypeScript emits a genuine ESM
+> dynamic import even from a CommonJS file, and Node's ESM resolver rejects an extensionless
+> specifier), and `verifyEnvironment` reads the settings back off the booted `AppConfigService`
+> and throws before the suite spends ~350 model calls. Trusting the flag is what failed; checking
+> it is cheap.
+>
+> **What is owed:** a re-run, so the numbers match their own description. It is quota, not work.
+> Until then the README's figures should be read as "measured with the demo connector live".
 
 > [!NOTE]
 > **The embedding/retrieval path is now proven end-to-end** (2026-09-02, resolving the
@@ -1278,62 +1311,228 @@ OSS-tooling story that genuinely stands alone. Consider it only after M6 ships.
 
 **Constraint: zero cost.** No paid tiers, ideally no credit card.
 
-### The key move: bake the index into the image
+*Built 2026-09-06. What follows is what was decided and why, not a sketch — the sketch that was
+here (a `dist/scripts/corpus-index.js` that never existed, a keyless build that §11.4's reversal
+had already broken, and a Turso row) is superseded below.*
 
-The demo corpus is fixed and read-only, so build the `sqlite-vec` index at Docker build time
-and ship it inside the image. No hosted vector database, no cold-start indexing, no cost,
-instant boot.
+### The target moved, because the free tier did
 
-```dockerfile
-# builder: pnpm install --frozen-lockfile && pnpm build
-#          && node dist/scripts/corpus-index.js   → database/app.db
-# runner:  copy dist/ + node_modules/ + database/app.db
-#          EXPOSE 7860 (Hugging Face Spaces default)
-```
+§9 originally chose **Hugging Face Spaces (Docker)** and rejected Render by name for its cold
+start. That table was written at planning time, and §9's own instruction to re-verify it is the
+reason this section no longer follows it:
 
-> [!WARNING]
-> **The keyless build described here no longer holds.** §11.4 originally fixed the default
-> embedding provider to local in-process, which made the index build a pure offline ONNX pass:
-> no Docker build secret, no build-time rate-limit risk, reproducible without a network. That
-> decision was superseded on 2026-09-04 — embeddings default to Gemini and the local provider
-> was never written — so building the index now needs a key and ~169 network calls.
->
-> Three ways out, to choose between when this milestone is actually built:
->
-> 1. **Build secret on Hugging Face Spaces.** Simplest to write, but reintroduces a secret to
->    configure and build-time quota risk on the embedding provider.
-> 2. **Ship a pre-built `database/app.db`.** Built locally or in CI and copied into the image;
->    keyless at build time, but it is a binary artifact and currently gitignored, so it needs a
->    home (a release asset, or LFS).
-> 3. **Write the local provider after all**, restoring the original story at the cost of one
->    dependency and a full reindex. See §11.4.
+- **Hugging Face now requires PRO ($9/mo) to create a Gradio or Docker Space.** Free accounts
+  get Static Spaces only; the change rolled out between June and August 2026 and existing free
+  Spaces were grandfathered. Its own pricing page lists "Create Gradio & Docker Spaces" as a PRO
+  line item.
+- **Koyeb's free Starter plan closed to new signups** after Mistral acquired them in February
+  2026. Pricing now starts at $29/mo.
+
+What is left, checked on 2026-09-06:
+
+| Host | Cost | Card | Cold start | Verdict |
+|---|---|---|---|---|
+| **Render free** | $0 | none | 30–60s after 15 idle min | **Chosen.** The only remaining option that is free *and* needs no card |
+| Northflank Sandbox | $0 | verified, not charged | none, always-on | Better, if a card on file is acceptable |
+| Cloud Run | ~$0 at this volume | required | 2–5s | Technically the best of the four |
+| HF Spaces Docker | $9/mo | required | none (48h sleep) | What §9 planned for, before it was paid |
+
+So the cold start is the price of the zero-cost constraint, not an oversight. What makes it
+survivable is the next section.
 
 ### Targets
 
 | Piece | Choice | Notes |
 |---|---|---|
-| Backend + baked index | **Hugging Face Spaces (Docker)** | Genuinely free, no card, recognizable to technical reviewers. Port 7860; set `app_port` in the Space README frontmatter |
-| Frontend | **Vercel** free | `NEXT_PUBLIC_API_URL` → Space URL |
-| Persistent memory writes (M4+) | **Turso** free (libSQL) or **Qdrant Cloud** free | Turso is SQLite-compatible → smallest diff from `better-sqlite3` |
-| Tracing | **LangSmith** free personal tier | |
-| Inference (chat) | **Groq free tier (default), Gemini free as fallback** (§11.3) | One agent run costs ~4 calls; `FailoverLlmService` crosses providers on quota |
-| Inference (embeddings) | Gemini free tier (§11.4) | Superseded the local-in-process plan, so embeddings **do** consume quota and need a key at index-build time |
+| Backend + baked index | **Render free (Docker)** | `render.yaml` is committed, so the deploy is reviewable rather than remembered clicks. The image is host-neutral — `PORT` comes from the environment — so moving to Northflank or Cloud Run is a redeploy, not a rewrite |
+| Frontend | **Vercel** free | `NEXT_PUBLIC_API_URL` → the Render URL |
+| Persistent memory writes | **None. Nothing was provisioned** | The draft's Turso row assumed long-term memory ships publicly; it does not. See below |
+| Tracing | **LangSmith** free personal tier | `LANGSMITH_ENDPOINT` must match the account's region |
+| Inference (chat) | Gemini free (default), Groq free as fallback (§11.3) | `FailoverLlmService` crosses providers on quota |
+| Inference (embeddings) | Gemini free at **runtime**; none at build time | The index is baked from committed vectors — see below |
 
-**Two warnings:**
+**Two warnings that still hold:**
+
 - **Do not run the agent loop on Vercel serverless.** Function timeouts will kill 30–90s
   multi-hop runs. Frontend only.
-- **Render's free tier spins down after ~15 minutes idle with a ~50s cold start** — exactly
-  the wrong behaviour when a reviewer clicks your link. Prefer HF Spaces.
+- **Free tiers change.** This table was re-verified on 2026-09-06 and two of its four rows had
+  already moved. Verify again rather than trusting it.
 
-Free tiers change. Verify current limits at implementation time rather than trusting this
-table.
+### The key move: bake the index into the image
+
+The demo corpus is fixed and read-only, so the `sqlite-vec` index is built at Docker build time
+and shipped inside the image.
+
+This is what makes an ephemeral free tier usable at all, and the argument is sharper than "cold
+starts are slow". Every host above has an ephemeral filesystem, and on Render's free plan a
+restart is every fifteen idle minutes. A container that indexed at boot would spend ~172
+embedding calls on every wake, against a free tier that answers ~20 per window — so it would
+come back not merely slow but rate-limited, and stay that way for an hour. With the index baked,
+the boot pass skips all 172 documents by checksum and makes zero calls.
+
+`ReindexScheduler` still runs at startup and should stay: it is what makes the baked index
+self-verifying (`indexed=0 skipped=172` in the boot log, which CI asserts). It is not a
+substitute for baking.
+
+### The keyless build, restored — by shipping the vectors
+
+§11.4's reversal (embeddings default to Gemini; the local in-process provider was never written)
+left this build needing an API key and ~172 network calls. §9 listed three ways out; the one
+taken is **option 2, ship a pre-built index — but shipped as the vectors, not as the database.**
+
+`corpus/index/embeddings.json` (~700KB, committed) holds one base64 float32 vector per chunk,
+keyed by a hash of the exact chunk text. `EMBEDDING_PROVIDER=precomputed` replays it, so
+`pnpm corpus:index` builds the whole index offline in 0.8s with no key.
+
+Why the vectors rather than the `.db`:
+
+- **Smaller by 6×.** The vectors are 172 × 768 × 4 = 528KB; the same data inside sqlite occupies
+  3.0MB, because `sqlite-vec` allocates a full 1024-row chunk however few rows are in it. A
+  cleaned `app.db` would be ~3.3MB of opaque binary.
+- **It is the only irreproducible part.** Everything else in the index — the documents, the
+  chunking, the schema — is already in git and is recomputed by the build.
+- **Staleness is loud, and checkable for free.** The key is a hash of the chunk text, so editing
+  a corpus document or changing `CHUNK_SIZE` makes the build fail on the first chunk rather than
+  producing an index that is quietly a mixture of two corpora. `pnpm corpus:vectors --check`
+  reports coverage in both directions and runs in CI with no key.
+
+**What it costs.** A ~700KB artifact in a public repo, rewritten whenever the corpus changes;
+one more `EMBEDDING_PROVIDER` value; and a rule to remember, which CI now remembers instead.
+Note that `precomputed` is a *build-time* provider only — a running server embeds questions,
+which are not in the artifact and cannot be, so it fails loudly on the first search.
+
+Generating the artifact needs a key exactly once, and `pnpm corpus:vectors --from-index` avoids
+even that by lifting the vectors out of an already-built index. Verified bit-identical: all 172
+vectors in the image match the development index exactly.
+
+### No database was provisioned, deliberately
+
+The draft table once read "persistent memory writes → Turso free". Nothing was provisioned,
+because the decision it depended on went the other way:
+
+- **Long-term memory is off on the public instance** (below), so the feature that wanted durable
+  storage does not run there.
+- Everything still written is disposable and bounded: traces (`TRACE_RETENTION_RUNS`),
+  checkpoints (`CHECKPOINT_RETENTION_SESSIONS`), and a `?demo=1` replay writes neither. A session
+  dies with the browser tab in any case (§11.8).
+
+So an ephemeral filesystem is *correct* here rather than tolerated, and the free tier's headline
+limitation costs this deployment nothing. Provisioning a database first and deciding the feature
+afterwards would have bought a dependency to keep alive for a feature that does not ship.
+
+### Two decisions taken before deploying, not during
+
+**1. Long-term memory does not ship publicly.** `recall()` searches all of `memory_facts` with no
+visitor filter. Crossing sessions *is* the M4.2 feature, so a session filter would delete what
+the milestone demonstrates — and on a URL with no sign-in, cross-session is also cross-visitor:
+one person's extracted fact reaches the next person's planner prompt.
+
+`LONG_TERM_MEMORY=false` on the deployed instance; long-term memory stays a **local capability,
+like live connectors**. The exposure it closes is narrow — M6's `mentionsSelf` gate means a
+corpus question stores nothing, so the only reachable case is a visitor writing a first-person
+sentence — but that is exactly the case that would leak, so the flag costs almost nothing visible
+and closes the channel completely. It also settles the inconsistency HANDOFF flagged:
+`MemoryController` refuses to serve fact bodies over HTTP while `memory_read` streams the nearest
+three to whoever asks the next question. With nothing stored, the two agree.
+
+`GET /memory/stats` reports `enabled` alongside the funnel, because a funnel of zeros otherwise
+cannot distinguish "nothing was worth remembering" from "the feature is off".
+
+*The alternative, for the record:* a per-browser id in `localStorage` would preserve the M4.2
+demonstration on the deployed instance, at the cost of a `visitor_id` column, a
+`MemoryRepository` change, plumbing through `recall`/`remember`/the ask DTO, a UI change and
+evals plumbing — and it is spoofable. Worth revisiting only if the deployed instance needs to
+*show* cross-session recall.
+
+**2. `POST /agent/ask` is rate limited.** `AskThrottlerGuard` (`@nestjs/throttler`, in-memory),
+5 questions per 10 minutes per IP by default. Budgeted in model calls rather than requests: one
+question costs ~4 against a free tier that answers ~20 per window. `?demo=1` replays are exempt —
+they cost nothing, and they are the fallback a visitor is pushed towards when quota is gone.
+
+CORS stays `origin: true`, and it is not the missing control it can look like: it decides which
+*origins* a browser hands the response to, and offers nothing against a caller that is not a
+browser. The rate limit applies to everyone equally.
+
+**`TRUST_PROXY_HOPS` is load-bearing for that limit.** Behind a platform proxy every request
+arrives from the proxy's address, so at 0 the whole internet shares one bucket and the first
+visitor to spend five questions locks out everyone else. Trusting more hops than exist is the
+mirror failure — `X-Forwarded-For` is client-supplied, so an over-long chain lets a caller mint a
+fresh identity per request. Default 1; set 0 when the API is reached directly.
 
 ### Rate-limit resilience
 
-Free tiers will be exhausted at some point, and it will happen while someone is looking.
-Handle it: catch quota errors, fall back to the next configured provider, and if all fail,
-serve a recorded run via `?demo=1` with an honest banner. A demo that degrades gracefully is
-more impressive than one that 500s.
+Free tiers will be exhausted at some point, and it will happen while someone is looking. §9 asked
+for a recorded run with an honest banner rather than a 500. **Half of it already existed and had
+never been reachable**: the event contract has carried `run_replayed.reason: 'quota_exhausted'`
+since M2 and the UI's `ReplayBanner` renders it, but nothing in the API ever set that reason.
+
+`QuotaFallbackService` closes it. `FailoverLlmService` now throws a typed
+`AllProvidersFailedError` carrying `quotaOnly`, and only a whole-chain quota refusal arms the
+fallback — a timeout, an abort or an unreachable provider is an outage, and answering an outage
+with a cheerful fixture is the dishonesty the banner exists to prevent.
+
+**The run that hits the wall still reports its own failure.** `run_replayed` is documented as the
+first event of a replayed run, and that is the honesty mechanism rather than a formatting detail;
+a run that failed halfway and then began replaying would emit it fourth, after `run_started` and
+`run_failed`, and the UI's reducer would merge the abandoned run's evidence into the recording's.
+So the breaker diverts the *next* request, from its first event, and expires on a timer — because
+finding out whether quota returned costs the model call there is none of. A successful run closes
+it early.
+
+### What the free tier's cold start looks like to a visitor
+
+Nothing removes the ~50s, so the UI stops it from looking like a fault:
+
+- The page fetches `/agent/examples` on mount, which is also what wakes the service — the spin-up
+  overlaps with the visitor reading the page rather than following their first question.
+- `ColdStartBanner` appears if that fetch takes more than 3s, saying the instance sleeps and is
+  waking. A warm instance answers in milliseconds and shows nothing.
+- `ConnectionBanner` now branches on whether the API is local: telling someone to run
+  `pnpm start:dev` against a public URL is advice they cannot act on.
+
+### What is in the repo
+
+| File | Why |
+|---|---|
+| `Dockerfile` | Two stages; builds the index keyless in the builder, runs as `node`. Host-neutral |
+| `.dockerignore` | Keeps `database/` and `.env` out of the build context — a developer's traces have no business in a published image |
+| `render.yaml` | The blueprint, so the deployment is reviewable. Secrets are `sync: false` |
+| `scripts/corpus-index.ts` | Builds `database/app.db`. **Not** `dist/scripts/corpus-index.js` — `scripts/` stays out of `tsconfig.build.json`, because putting it back is what once made `nest build` emit `dist/src/main.js` |
+| `scripts/corpus-vectors.ts` | Writes the vector artifact; `--from-index` lifts it out of a built index for free, `--check` verifies coverage |
+| `src/embeddings/precomputed-embedding.provider.ts` | Replays the artifact |
+| `src/agent/ask-throttler.guard.ts` | The rate limit |
+| `src/agent/quota-fallback.service.ts` | The degraded demo |
+| CI `docker` job | Builds the image, boots it, streams a recorded run, and asserts `skipped=172` |
+
+### What building it actually found
+
+None of these were visible from the source, which is why §9 asked for the image to be *booted*
+rather than built:
+
+1. **The runtime user could not write to the baked database.** `database/` was root-owned from
+   the builder stage, and sqlite in WAL mode creates `-wal`/`-shm` *beside* the file — so the
+   image built perfectly and died on first boot with `SQLITE_READONLY_DIRECTORY`. Fixed with
+   `COPY --chown=node:node`.
+2. **`EMBEDDING_MODEL` defaulted to `bge-m3` at 1024d while `EMBEDDING_PROVIDER` defaulted to
+   `gemini`.** A pair that cannot work, left over from when Ollama was the default provider, and
+   invisible locally because `.env` supplies both. The container has no `.env`, so the index
+   identity guard refused to boot against `gemini/bge-m3:1024`. The defaults now match.
+3. **The index identity guard read the *config* while the indexer wrote the *provider*.**
+   Equivalent for gemini and ollama, and wrong for `precomputed`, which reports the identity of
+   the model that produced the vectors it replays. Both sides now read the provider, which is
+   what the guard's own comment always claimed.
+4. **`corpus/generated` is not optional in the runtime image.** Without it the boot reindex finds
+   every indexed path missing from disk and `removeDeletedArticles` deletes the baked index — a
+   healthy startup destroying the thing the image exists to ship.
+
+### Deploying
+
+1. Render → New → Blueprint → this repo. Supply `GEMINI_API_KEY`, `GROQ_API_KEY` and
+   `EMBEDDING_API_KEY` when prompted. The third is the Gemini key again under the name the
+   embedding provider reads — it falls back to `LLM_API_KEY`, *not* to `GEMINI_API_KEY`.
+2. Deploy the UI to Vercel with `NEXT_PUBLIC_API_URL` pointing at the Render URL.
+3. Optionally set `LANGSMITH_TRACING=true` with a key whose `LANGSMITH_ENDPOINT` matches the
+   account's region.
 
 ---
 
@@ -1426,10 +1625,15 @@ Decided items are marked ✅. Remaining items resolve before or during M0, with 
    even a value in `EMBEDDING_PROVIDER`'s enum. The corpus is indexed against Gemini, and the
    `index_meta` identity guard makes a later swap fail loudly rather than silently.
 
-   **The cost of this reversal is real and it lands in §9.** The original decision existed to
-   keep the Docker build offline and keyless; that property is forfeited while embeddings need
-   an API key. See the warning in §9 for the three ways out. Reopen this if the keyless build
-   turns out to matter more than the convenience.
+   **The cost of this reversal landed in §9, and §9 paid it** (2026-09-06). The original
+   decision existed to keep the Docker build offline and keyless. That property is restored
+   without restoring the dependency: `corpus/index/embeddings.json` ships the vectors and
+   `EMBEDDING_PROVIDER=precomputed` replays them, so the image indexes 172 documents in 0.8s
+   with no key and no network. Gemini remains the runtime provider — a question still has to be
+   embedded when it is asked — so this closes the build half only, which was the half that
+   mattered. **Do not reopen this to write the local provider**: it would invalidate the
+   committed index, every measured distance in `docs/`, and the M6 numbers, to buy a property
+   §9 already has.
 5. **Anthropic support.** Owner has a key but prefers not to spend it. *Recommendation: leave
    the seam, do not implement. It is 30 minutes whenever it is wanted.*
 6. ✅ **M4 persistence: neither Turso nor Qdrant — the existing `better-sqlite3` file.**

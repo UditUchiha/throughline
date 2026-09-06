@@ -23,16 +23,38 @@ import { EvidencePanel } from '@/components/EvidencePanel';
 import { ExampleQuestions } from '@/components/ExampleQuestions';
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { PlanPanel } from '@/components/PlanPanel';
-import { ConnectionBanner, FailureBanner, ReplayBanner } from '@/components/RunBanners';
+import {
+  ColdStartBanner,
+  ConnectionBanner,
+  FailureBanner,
+  ReplayBanner,
+} from '@/components/RunBanners';
 import { RunStats } from '@/components/RunStats';
 import { ToolTimeline } from '@/components/ToolTimeline';
 import { TriageCard } from '@/components/TriageCard';
+
+/**
+ * How long the first fetch may take before the page admits the API is asleep.
+ *
+ * A warm instance answers in tens of milliseconds, so anything past a couple of
+ * seconds is a cold start rather than a slow network — and three seconds is short
+ * enough that the visitor has not yet concluded the page is broken.
+ */
+const COLD_START_HINT_MS = 3000;
 
 export default function Page() {
   const [question, setQuestion] = useState('');
   const [demo, setDemo] = useState(false);
   const [view, setView] = useState<RunView>(emptyRun);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  /**
+   * The first fetch is taking long enough that the API is probably asleep.
+   *
+   * A flag rather than "loading", because a fast answer should show nothing at
+   * all — a banner that flashes on every page load is noise. It is only worth
+   * saying once the wait is long enough for a visitor to start wondering.
+   */
+  const [waking, setWaking] = useState(false);
   const [examples, setExamples] = useState<ExampleQuestion[]>([]);
   const [demoRuns, setDemoRuns] = useState<DemoRun[]>([]);
   const [focus, setFocus] = useState<{ evidenceId: string; nonce: number } | null>(null);
@@ -101,20 +123,37 @@ export default function Page() {
   useEffect(() => {
     const controller = new AbortController();
 
+    // This fetch is also the wake-up call. On a free tier that sleeps after 15
+    // idle minutes the container starts spinning up the moment the page loads,
+    // so the ~50s overlaps with the visitor reading the page instead of landing
+    // on their first question. Announced only after a few seconds, because a warm
+    // instance answers in milliseconds and a banner that always flashes says
+    // nothing.
+    const wakingTimer = setTimeout(() => setWaking(true), COLD_START_HINT_MS);
+    const settle = () => {
+      clearTimeout(wakingTimer);
+      setWaking(false);
+    };
+
     Promise.all([fetchExamples(controller.signal), fetchDemoRuns(controller.signal)])
       .then(([loadedExamples, loadedDemoRuns]) => {
+        settle();
         setExamples(loadedExamples);
         setDemoRuns(loadedDemoRuns);
         setConnectionError(null);
       })
       .catch((error: unknown) => {
+        settle();
         // An aborted fetch is this effect being cleaned up, not a failure — the
         // one rejection that must never surface as an error to the visitor.
         if (isAbort(error)) return;
         setConnectionError(describe(error));
       });
 
-    return () => controller.abort();
+    return () => {
+      clearTimeout(wakingTimer);
+      controller.abort();
+    };
   }, []);
 
   // Ticks the live latency readout. Driven off wall-clock rather than event
@@ -236,6 +275,7 @@ export default function Page() {
           onDemoChange={handleDemoChange}
         />
 
+        {waking && !connectionError && <ColdStartBanner apiUrl={API_URL} />}
         {connectionError && <ConnectionBanner error={connectionError} apiUrl={API_URL} />}
         {view.replay && <ReplayBanner replay={view.replay} />}
         {view.error && !connectionError && <FailureBanner error={view.error} demo={demo} />}

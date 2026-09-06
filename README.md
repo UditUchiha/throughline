@@ -471,9 +471,26 @@ person asking, which makes it a narrow channel, but it is narrow rather than clo
 ### The numbers
 
 All 59 questions, run 2026-09-06. Gemini answering with Groq as failover, Groq judging,
-connectors off, long-term memory reset between questions. **0 runs failed, 0 questions went
-unjudged.** Reproduce with `pnpm eval`; the full record is
+long-term memory reset between questions. **0 runs failed, 0 questions went unjudged.**
+Reproduce with `pnpm eval`; the full record is
 [`evals/results-latest.json`](evals/results-latest.json).
+
+> [!WARNING]
+> **These were measured with the demo connector live, despite the results file recording
+> `connectors: false`.** Found on 2026-09-06 while building §9: `@nestjs/config` snapshots
+> `process.env` inside the `@Module` decorator of `src/config/config.module.ts`, so it reads the
+> environment when that file is *imported* — and `evals/harness/context.ts` imported `AppModule`
+> before calling `applyEnvironment()`. Every setting the harness made went into a `process.env`
+> nobody read again.
+>
+> Two of 59 questions retrieved from the vault (`q.tariq-hire-and-start` and
+> `q.ceo-favorite-hobby`), neither cited it, so the scores below are probably intact — but the
+> planner saw a four-tool menu on all 59, and the isolated database was created and never
+> written to, so eval traffic landed in `database/app.db`.
+>
+> The cause is fixed and `verifyEnvironment` now reads the settings back off the booted
+> application and throws before the suite spends ~350 model calls. **What is owed is a re-run**,
+> which is quota rather than work. Until then, read these as "with the demo connector live".
 
 | Metric | Agent | Method |
 | --- | --- | --- |
@@ -676,6 +693,103 @@ named exemptions with a reason each, and an exemption for a file that no longer 
 itself a failure, so the rule cannot decay quietly. The identifier list is parsed out of
 `PLAN.md` §3 rather than duplicated, so the gate does not have to exempt itself.
 
+## Deployment
+
+Zero cost, no credit card. `docker build` → boot → done; the image is host-neutral, and
+[`render.yaml`](render.yaml) is the committed blueprint.
+
+```bash
+docker build -t throughline .
+docker run --rm -p 7860:7860 \
+  -e GEMINI_API_KEY=... -e GROQ_API_KEY=... -e EMBEDDING_API_KEY=... \
+  -e LLM_FALLBACK_PROVIDERS=groq \
+  throughline
+```
+
+`EMBEDDING_API_KEY` is the Gemini key again, under the name the embedding provider reads. It
+falls back to `LLM_API_KEY`, **not** to `GEMINI_API_KEY`, so a container given only the chat key
+fails at boot.
+
+### The index is baked into the image
+
+The corpus is fixed and read-only, so the `sqlite-vec` index is built at image-build time. That
+is not an optimisation — every free host has an ephemeral filesystem, and on Render's free plan
+a restart happens after fifteen idle minutes. A container that indexed at boot would spend ~172
+embedding calls on every wake against a free tier that answers ~20 per window, so it would come
+back rate-limited rather than merely slow. Baked, the boot pass skips all 172 by checksum and
+makes zero calls — `indexed=0 skipped=172` in the log, which CI asserts.
+
+The image builds a *fresh* database rather than copying a developer's, so the ~9.6MB of local
+traces, checkpoints and pending writes in `database/app.db` never ship. Measured: **3.5MB, 172
+documents, 0.8s, zero model calls.**
+
+### The build needs no API key
+
+`corpus/index/embeddings.json` (~700KB, committed) holds one vector per chunk, keyed by a hash of
+the exact chunk text. `EMBEDDING_PROVIDER=precomputed` replays it, so the Docker build indexes
+the corpus offline.
+
+The vectors are shipped rather than the built `.db` for three reasons: they are 6× smaller
+(528KB of float32 against 3.0MB in sqlite, which allocates a full 1024-row chunk regardless);
+they are the only part of the index that cannot be recomputed offline; and hashing the chunk text
+makes staleness loud — edit a corpus document or change `CHUNK_SIZE` and the build fails on the
+first chunk instead of producing an index that is quietly a mixture of two corpora.
+
+```bash
+pnpm corpus:vectors --from-index   # free: lift them out of a built index
+pnpm corpus:vectors                # ~172 calls; needs a key
+pnpm corpus:vectors --check        # free: is the artifact current? (runs in CI)
+pnpm corpus:index                  # build database/app.db
+```
+
+`precomputed` is a **build-time** provider only — a running server has to embed *questions*,
+which are not in the artifact and cannot be, so it fails loudly on the first search.
+
+### Where it runs
+
+| Host | Cost | Card | Cold start |
+| --- | --- | --- | --- |
+| **Render free** — chosen | $0 | none | 30–60s after 15 idle min |
+| Northflank Sandbox | $0 | verified, not charged | none, always-on |
+| Cloud Run | ~$0 at this volume | required | 2–5s |
+| HF Spaces Docker | $9/mo | required | none (48h sleep) |
+
+`PLAN.md` §9 originally chose Hugging Face Spaces and rejected Render by name for its cold start.
+Re-verifying at implementation time is why it does not: **HF now requires PRO to create a Docker
+Space**, and Koyeb's free tier closed to new signups after the Mistral acquisition. Render is
+what is left that is free and needs no card, so the cold start is the price of the constraint
+rather than an oversight. Nothing removes the ~50s, so the UI names it: the page fetches
+`/agent/examples` on mount — which is also what wakes the service, overlapping the spin-up with
+the visitor reading the page — and shows a "waking the API" banner if that takes more than 3s.
+
+The frontend goes to Vercel with `NEXT_PUBLIC_API_URL` pointing at the API. **Do not run the
+agent loop on serverless**: function timeouts kill 30–90s multi-hop runs.
+
+### What the public instance turns off
+
+- **`LONG_TERM_MEMORY=false`.** `recall()` searches all of `memory_facts` with no visitor
+  filter, and crossing sessions *is* the M4.2 feature — so a session filter would delete what
+  the milestone demonstrates, while on a URL with no sign-in cross-session is also
+  cross-visitor. Long-term memory stays a local capability, like live connectors.
+  `GET /memory/stats` reports `enabled` so a funnel of zeros is not mistaken for a result.
+- **`POST /agent/ask` is rate limited** — 5 questions per 10 minutes per IP, budgeted in model
+  calls rather than requests (one question costs ~4 against a window of ~20). `?demo=1` replays
+  are exempt: they cost nothing and they are the fallback when quota runs out. CORS stays open
+  deliberately; it governs which origins a *browser* trusts and does nothing about a caller that
+  is not one, so the rate limit is the actual control. **`TRUST_PROXY_HOPS` is load-bearing**:
+  at 0 behind a proxy every visitor shares one bucket and the first to spend five questions
+  locks out the rest.
+- **`DEMO_MODE=true`**, which keeps connectors on bundled synthetic data. Not the same thing as
+  `?demo=1` — the whole live pipeline runs.
+
+### When the quota does run out
+
+The run streams a recorded one instead, with a banner that says so. Only a whole-chain quota
+refusal arms it — a timeout or an unreachable provider is an outage, and answering an outage
+with a cheerful fixture is exactly the dishonesty the banner exists to prevent. The run that
+hits the wall still reports its own failure, because `run_replayed` is contractually the first
+event of a replay; it is the *next* request that replays.
+
 ## Environment variables
 
 | Var                            | Default                     | Purpose                                                                       |
@@ -687,14 +801,15 @@ itself a failure, so the rule cannot decay quietly. The identifier list is parse
 | `GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` | —  | Per-provider keys, so a chain can authenticate to each hop                     |
 | `LLM_MODEL_FAST` / `_DEFAULT` / `_DEEP` | —                  | Override the tier→model map for the primary provider                           |
 | `LLM_MAX_RETRIES`              | `2`                         | Deliberately low — retrying into a quota 429 exhausts the window faster        |
-| `EMBEDDING_PROVIDER`           | `gemini`                    | `gemini` \| `ollama`                                                           |
-| `EMBEDDING_MODEL`              | `gemini-embedding-001`      | Embedding model. The bare Zod fallback is `bge-m3`, which only pairs with `EMBEDDING_PROVIDER=ollama` — copy `.env.example` rather than relying on it |
+| `EMBEDDING_PROVIDER`           | `gemini`                    | `gemini` \| `ollama` \| `precomputed`. The last is **build-time only** — it replays committed vectors so the Docker build needs no key, and cannot embed a question |
+| `EMBEDDING_MODEL`              | `gemini-embedding-001`      | Embedding model. Must describe the model the index was built with — the identity in `index_meta` is checked at boot |
 | `EMBEDDING_DIMENSIONS`         | `768`                       | Must match the model's output size (`1024` for `bge-m3`). Delete `database/app.db` when changing |
+| `EMBEDDING_API_KEY`            | —                           | Required for `EMBEDDING_PROVIDER=gemini`. Falls back to `LLM_API_KEY`, **not** to `GEMINI_API_KEY` |
+| `EMBEDDING_VECTORS_PATH`       | `./corpus/index/embeddings.json` | The vectors `precomputed` replays, written by `pnpm corpus:vectors`     |
 | `OLLAMA_URL`                   | `http://localhost:11434`    | Ollama API base URL                                                            |
 | `CHAT_MODEL`                   | `qwen3.5:9b`                | Chat model, when `LLM_PROVIDER=ollama`                                         |
 | `DATABASE_PATH`                | `./database/app.db`         | SQLite file path                                                               |
 | `KNOWLEDGE_PATH`               | `./corpus/generated`        | Markdown corpus directory                                                      |
-| `PROMPTS_PATH`                 | `./prompts`                 | Prompt files directory                                                         |
 | `DEMO_RUNS_PATH`               | `./fixtures/runs`           | Recorded runs replayed by `?demo=1`                                            |
 | `CORPUS_QUESTIONS_PATH`        | `./corpus/questions.yaml`   | Question set served by `/agent/examples`                                       |
 | `REINDEX_INTERVAL_MS`          | `1800000`                   | Background reindex interval                                                    |
@@ -706,6 +821,11 @@ itself a failure, so the rule cannot decay quietly. The identifier list is parse
 | `MCP_SERVERS`                  | `[]`                        | JSON array of MCP servers to connect at boot. Ignored, with a warning, while `DEMO_MODE` is on. `allowTools` is required — discovery is not consent |
 | `MCP_DEMO_VAULT_PATH`          | `./fixtures/mcp/vault`      | The synthetic Obsidian vault `DEMO_MODE` serves                                |
 | `MCP_TIMEOUT_MS`               | `15000`                     | Connect, discover and per-call budget for an MCP server. Generous because an `npx`-launched server may download itself first |
+| `LONG_TERM_MEMORY`             | `true`                      | Whether durable, cross-session memory runs at all. **`false` on the public deployment** — `recall()` has no visitor filter, so cross-session is cross-visitor without a sign-in. Off means "not consulted", not "erased" |
+| `RATE_LIMIT_ENABLED`           | `true`                      | The limit on `POST /agent/ask`. An off switch rather than a very large number, because the latter still reads like a limit |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_ASKS` | `600000` / `5` | Per-IP budget for live questions. `?demo=1` replays are exempt                 |
+| `TRUST_PROXY_HOPS`             | `1`                         | Express `trust proxy`. Load-bearing for the rate limit: at 0 behind a proxy the whole internet shares one bucket; too high lets a caller forge `X-Forwarded-For` |
+| `QUOTA_FALLBACK_COOLDOWN_MS`   | `600000`                    | How long a recorded run is served after every provider refused on quota. A window rather than a probe — probing costs the model call there is none of |
 | `RETRIEVAL_DISTANCE_THRESHOLD` | `0.9`                       | **Not enforced, and M6 measured why.** Over 471 real retrievals (74 relevant, 397 not) relevant and irrelevant hits overlap completely on distance — best achievable F1 0.551, precision 0.495, no empty band to put a cutoff in. Re-derive with `pnpm eval:sweep`; background in [`docs/retrieval-threshold-study.md`](docs/retrieval-threshold-study.md) |
 | `TRACE_RETENTION_RUNS`         | `200`                       | Finished runs kept in the local trace store; oldest pruned on write. No unlimited option — see [`env.schema.ts`](src/config/env.schema.ts) |
 | `CHECKPOINT_RETENTION_SESSIONS` | `50`                       | Sessions kept by the short-term-memory checkpointer; oldest pruned after every run          |
@@ -735,6 +855,9 @@ itself a failure, so the rule cannot decay quietly. The identifier list is parse
 | Re-verify the corpus answer key     | `pnpm corpus:generate --verify-only`       |
 | Regenerate docs for one fact        | `pnpm corpus:generate --only=fact.<id>`    |
 | Re-record the demo fixtures         | `pnpm capture:runs` (server must be running) |
+| Vector artifact — from a built index | `pnpm corpus:vectors --from-index` (free)  |
+| Vector artifact — is it current?    | `pnpm corpus:vectors --check` (free)       |
+| Build the baked index               | `pnpm corpus:index` (keyless with `EMBEDDING_PROVIDER=precomputed`) |
 | UI lint / type-check / tests        | `cd ui && pnpm lint && pnpm typecheck && pnpm test` |
 
 ## The corpus is an answer key, not test data

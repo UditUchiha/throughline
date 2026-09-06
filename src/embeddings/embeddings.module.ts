@@ -4,6 +4,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { EMBEDDING_SERVICE } from './embedding.types';
 import { OllamaEmbeddingsService } from './ollama-embeddings.service';
 import { GeminiEmbeddingProvider } from './gemini-embedding.provider';
+import { PrecomputedEmbeddingProvider } from './precomputed-embedding.provider';
 
 @Module({
   imports: [ConfigModule],
@@ -16,6 +17,8 @@ import { GeminiEmbeddingProvider } from './gemini-embedding.provider';
             return new GeminiEmbeddingProvider(config);
           case 'ollama':
             return new OllamaEmbeddingsService(config);
+          case 'precomputed':
+            return new PrecomputedEmbeddingProvider(config);
           default: {
             // Exhaustiveness check: adding a provider to the enum without a case
             // here becomes a compile error rather than a runtime surprise.

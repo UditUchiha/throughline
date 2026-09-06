@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplicationContext } from '@nestjs/common';
-import { AppModule } from '../../src/app.module';
 import { AppConfigService } from '../../src/config/app-config.service';
 import { DEFAULT_DATABASE_PATH } from '../../src/config/env.schema';
 import { IndexingService } from '../../src/knowledge/indexing.service';
@@ -47,6 +46,20 @@ export interface EvalContext {
  * the *application* reads `process.env`, and every variable set here is declared
  * in `env.schema.ts` and validated at boot like any other. Setting them from a
  * script is the only way to configure a Nest context that has not started yet.
+ *
+ * ⚠️ **"Before anything reads it" is a real constraint, and it was broken here
+ * for the whole of M6.** `@nestjs/config`'s `forRoot()` runs inside the
+ * `@Module` decorator of `src/config/config.module.ts`, so it snapshots
+ * `process.env` when that file is *imported* — not when Nest boots. A static
+ * `import { AppModule }` at the top of this file therefore froze the
+ * environment before `applyEnvironment` had run, and every variable below was
+ * assigned into a `process.env` nobody would read again. The suite went on
+ * writing traces into `database/app.db` while reporting an isolated copy, and
+ * ran with the demo connector live while recording `connectors: false`.
+ *
+ * Two things keep it fixed: `AppModule` is loaded with a dynamic `import()`
+ * *after* this function returns, and `verifyEnvironment` below checks the
+ * settings actually landed instead of trusting that they did.
  */
 function applyEnvironment(options: EvalOptions): void {
   process.env.DATABASE_PATH = options.database;
@@ -69,6 +82,44 @@ function applyEnvironment(options: EvalOptions): void {
   // 59 runs is a lot of noise in a shared project, and a trace of an eval run is
   // rarely the trace anyone is looking for.
   if (!options.trace) process.env.LANGSMITH_TRACING = 'false';
+}
+
+/**
+ * Confirms the settings in `applyEnvironment` actually reached the application.
+ *
+ * The check exists because trusting them failed silently for an entire
+ * milestone, and failed in the worst available way: every number the suite
+ * produced was plausible, internally consistent, and measured against a
+ * different configuration than the one written beside it in
+ * `results-latest.json`. A `connectors: false` in a results file is a claim
+ * about the run, so it has to be verified against the running system rather
+ * than echoed back from the flag that was supposed to cause it.
+ *
+ * It throws rather than warns. A suite that knows it is measuring the wrong
+ * thing must not go on to spend ~350 model calls doing it.
+ */
+function verifyEnvironment(config: AppConfigService, options: EvalOptions): void {
+  const mismatches: string[] = [];
+
+  if (resolve(config.databasePath) !== resolve(options.database)) {
+    mismatches.push(`DATABASE_PATH is "${config.databasePath}", expected "${options.database}"`);
+  }
+  if (config.demoMode !== options.connectors) {
+    mismatches.push(`DEMO_MODE is ${config.demoMode}, expected ${options.connectors}`);
+  }
+  if (!options.connectors && config.mcpServers.length > 0) {
+    mismatches.push(`${config.mcpServers.length} MCP server(s) configured with connectors off`);
+  }
+
+  if (mismatches.length > 0) {
+    const detail = mismatches.map((line) => `  - ${line}`).join('\n');
+    throw new Error(
+      `The eval environment did not take effect:\n${detail}\n\n` +
+        `Something imported src/config/config.module.ts before applyEnvironment() ran — ` +
+        `@nestjs/config snapshots process.env inside its @Module decorator, so an import ` +
+        `is enough. Load it with a dynamic import() after the environment is set.`,
+    );
+  }
 }
 
 /**
@@ -131,6 +182,18 @@ export async function createEvalContext(options: EvalOptions): Promise<EvalConte
 
   applyEnvironment(options);
 
+  // Deferred on purpose — see the warning on `applyEnvironment`. A static
+  // `import` at the top of this file would evaluate `config.module.ts`, and with
+  // it the `process.env` snapshot, before a single setting above was made.
+  //
+  // `require` rather than `await import()`: under `module: nodenext` TypeScript
+  // emits a genuine ESM dynamic import even from a CommonJS file, and Node's ESM
+  // resolver will not take an extensionless specifier — so the obvious spelling
+  // fails at runtime having looked correct. This is the one deferral in the
+  // harness; the guard below is what catches it if it ever stops working.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { AppModule } = require('../../src/app.module') as typeof import('../../src/app.module');
+
   const app = await NestFactory.createApplicationContext(AppModule, {
     // The suite prints its own progress; Nest's per-request logging would bury it.
     // Warnings and errors stay: a failover, an unpriced model or a skipped MCP
@@ -139,6 +202,8 @@ export async function createEvalContext(options: EvalOptions): Promise<EvalConte
     bufferLogs: false,
   });
   app.enableShutdownHooks();
+
+  verifyEnvironment(app.get(AppConfigService), options);
 
   const summary = await app.get(IndexingService).reindexAll();
   if (summary.indexed.length > 0) {

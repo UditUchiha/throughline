@@ -6,7 +6,12 @@ import { dirname } from 'path';
 import { AppConfigService } from '../config/app-config.service';
 import { SQLITE_CONNECTION } from './database.constants';
 import { runMigrations } from './migrations';
-import { embeddingIdentity, embeddingModelId } from '../embeddings/embedding.types';
+import { EmbeddingsModule } from '../embeddings/embeddings.module';
+import {
+  EMBEDDING_SERVICE,
+  embeddingIdentity,
+  type EmbeddingProvider,
+} from '../embeddings/embedding.types';
 
 /**
  * Detect a stale index built by a different embedding model or dimensions.
@@ -36,10 +41,11 @@ function checkIndexIdentity(db: Database.Database, currentId: string, logger: Lo
 }
 
 @Module({
+  imports: [EmbeddingsModule],
   providers: [
     {
       provide: SQLITE_CONNECTION,
-      useFactory: (config: AppConfigService): Database.Database => {
+      useFactory: (config: AppConfigService, embeddings: EmbeddingProvider): Database.Database => {
         const logger = new Logger('DatabaseModule');
         mkdirSync(dirname(config.databasePath), { recursive: true });
 
@@ -48,20 +54,26 @@ function checkIndexIdentity(db: Database.Database, currentId: string, logger: Lo
         db.pragma('foreign_keys = ON');
         sqliteVec.load(db);
 
-        runMigrations(db, config.embeddingDimensions);
-        // Built the same way IndexingService writes it, so the two cannot drift.
+        // The provider's dimension count, not the configured one, for the same
+        // reason as the identity below: `precomputed` takes both from the artifact,
+        // and a vec_chunks table sized from a stale env var rejects every insert.
+        runMigrations(db, embeddings.dimensions);
+        // Read off the *provider*, which is the same object IndexingService writes
+        // the identity from — so the two genuinely cannot drift. Reconstructing it
+        // from `EMBEDDING_PROVIDER` + `EMBEDDING_MODEL` looked equivalent and was
+        // not: `precomputed` replays vectors somebody else's model produced and
+        // reports that model's identity, so a config-derived string would have
+        // recorded `precomputed/...` for an index built by Gemini and refused to
+        // boot against it.
         checkIndexIdentity(
           db,
-          embeddingIdentity(
-            embeddingModelId(config.embeddingProvider, config.embeddingModel),
-            config.embeddingDimensions,
-          ),
+          embeddingIdentity(embeddings.modelId, embeddings.dimensions),
           logger,
         );
 
         return db;
       },
-      inject: [AppConfigService],
+      inject: [AppConfigService, EMBEDDING_SERVICE],
     },
   ],
   exports: [SQLITE_CONNECTION],

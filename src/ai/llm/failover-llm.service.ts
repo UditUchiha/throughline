@@ -4,6 +4,26 @@ import type { ChatMessage, ChatOptions, ChatResult, LlmService } from './llm.typ
 import { QuotaExceededError, type OpenAICompatibleProvider } from './openai-compatible.provider';
 
 /**
+ * Raised when the chain is exhausted — every configured provider refused.
+ *
+ * Typed, and carrying `quotaOnly`, because §9's degraded demo has to tell one
+ * exhausted chain from another. "All providers are out of budget" is the case
+ * where replaying a recording is the honest response; "all providers are
+ * unreachable" is a network fault, and serving a fixture for it would present an
+ * infrastructure problem as a working demo. Reading that distinction back out of
+ * the message string would work right up until someone reworded the message.
+ */
+export class AllProvidersFailedError extends Error {
+  constructor(
+    message: string,
+    readonly quotaOnly: boolean,
+  ) {
+    super(message);
+    this.name = 'AllProvidersFailedError';
+  }
+}
+
+/**
  * Tries each configured provider in order until one answers.
  *
  * This exists because free tiers are small and the failure is not hypothetical:
@@ -35,6 +55,10 @@ export class FailoverLlmService implements LlmService {
 
   async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResult> {
     const failures: string[] = [];
+    // Tracked as the loop runs rather than inferred from `failures` afterwards:
+    // by then the errors are strings, and "was this quota?" is not a question a
+    // message should have to answer.
+    let quotaOnly = true;
 
     for (const [index, provider] of this.providers.entries()) {
       try {
@@ -46,6 +70,7 @@ export class FailoverLlmService implements LlmService {
       } catch (error) {
         if (!isRetryableOnAnotherProvider(error)) throw error;
 
+        if (!(error instanceof QuotaExceededError)) quotaOnly = false;
         failures.push(`${provider.provider}: ${errorMessage(error)}`);
         const next = this.providers[index + 1];
         this.logger.warn(
@@ -56,8 +81,9 @@ export class FailoverLlmService implements LlmService {
       }
     }
 
-    throw new Error(
+    throw new AllProvidersFailedError(
       `Every configured LLM provider failed:\n${failures.map((f) => `  - ${f}`).join('\n')}`,
+      quotaOnly,
     );
   }
 }

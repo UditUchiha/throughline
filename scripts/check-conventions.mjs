@@ -80,6 +80,65 @@ const PROCESS_ENV_EXEMPTIONS = new Map([
   ],
 ]);
 
+/**
+ * Generated artifacts whose contents are machine data, not text.
+ *
+ * The client-identifier rule matches case-insensitively against every line of
+ * every tracked file, which is right for anything a person wrote and meaningless
+ * against base64: one of the two identifiers PLAN.md §3 names is four characters
+ * long, and a four-character string turns up inside a 4096-character base64 blob
+ * routinely. `corpus/index/embeddings.json` is 172 such blobs, and one of them
+ * hit — in the wrong case, surrounded by base64 alphabet, in a file that contains
+ * no prose at all.
+ *
+ * The exemption is **conditional on the file still being machine data**, checked
+ * by `looksGenerated` below rather than taken on trust. That matters more here
+ * than anywhere else in this file: a blanket path skip on a public-repo gate is
+ * exactly how a real leak gets waved through later, and this way a file that
+ * gains a description field, a comment, or any human-written string stops
+ * qualifying and is checked like everything else.
+ */
+const GENERATED_DATA_FILES = new Map([
+  [
+    'corpus/index/embeddings.json',
+    'sha256 keys and base64 float32 vectors — the committed artifact that makes ' +
+      "the Docker index build keyless (PLAN.md §9). No line of it is anyone's prose.",
+  ],
+]);
+
+/**
+ * True when every string in the file is a hash or a base64 payload.
+ *
+ * Deliberately strict: the metadata keys the artifact does carry (`modelId`,
+ * `generatedAt`) are matched by name, so adding a free-text field to the format
+ * fails this check and revokes the exemption automatically.
+ */
+function looksGenerated(content) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return false;
+
+  const vectors = parsed.vectors;
+  if (typeof vectors !== 'object' || vectors === null) return false;
+
+  const entries = Object.entries(vectors);
+  if (entries.length === 0) return false;
+
+  const machineData = entries.every(
+    ([key, value]) =>
+      /^[0-9a-f]{64}$/.test(key) && typeof value === 'string' && /^[A-Za-z0-9+/=]+$/.test(value),
+  );
+
+  const knownScalars = ['modelId', 'dimensions', 'generatedAt', 'vectors'];
+  const onlyKnownKeys = Object.keys(parsed).every((key) => knownScalars.includes(key));
+
+  return machineData && onlyKnownKeys;
+}
+
 /** Strips comments and string literals so a rule cannot fire on prose or a regex. */
 function stripNonCode(source) {
   return source
@@ -142,6 +201,14 @@ for (const full of [...walk(SRC), ...walk(EVALS)]) {
       );
     }
   });
+}
+
+for (const [file] of GENERATED_DATA_FILES) {
+  // Same reasoning as the PROCESS_ENV_EXEMPTIONS sweep below: an exemption naming
+  // a file that no longer exists is a rule quietly getting narrower.
+  if (!existsSync(join(ROOT, file))) {
+    violate('stale exemption', 'scripts/check-conventions.mjs', 0, `${file} no longer exists`);
+  }
 }
 
 for (const [file] of PROCESS_ENV_EXEMPTIONS) {
@@ -244,6 +311,11 @@ if (identifiers.length > 0) {
       // Binary or unreadable: nothing to match, and a lockfile is not worth failing on.
       continue;
     }
+
+    // Earned each run, not granted once — see GENERATED_DATA_FILES. A listed file
+    // that stops looking generated is checked like any other rather than skipped.
+    if (GENERATED_DATA_FILES.has(file) && looksGenerated(content)) continue;
+
     content.split('\n').forEach((text, index) => {
       if (pattern.test(text)) {
         violate(

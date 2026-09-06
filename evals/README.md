@@ -73,6 +73,29 @@ heard of.
 So the harness sets `DEMO_MODE=false` and `MCP_SERVERS=[]` before boot. Pass `--connectors` to
 measure the connector deliberately; the setting is recorded either way.
 
+> [!WARNING]
+> **"Before boot" was not true until 2026-09-06, and the committed numbers are the casualty.**
+> `@nestjs/config` reads `process.env` inside the `@Module` decorator of
+> `src/config/config.module.ts`, so it snapshots the environment when that file is *imported* —
+> and `context.ts` imported `AppModule` at the top of the file, before `applyEnvironment()` ran.
+> Every variable set there went into a `process.env` nothing would read again.
+>
+> `results-latest.json` therefore records `"connectors": false` for a run in which
+> `obsidian_search_notes` was registered and fired on two of 59 questions, and the isolated
+> database was created and never written to. Neither vault hit was cited, so the scores are
+> probably intact — but the planner saw a four-tool menu on all 59, which is not the run the
+> file describes. **The numbers are owed a re-run.**
+>
+> Two things now hold it: `AppModule` is loaded with a deferred `require` after
+> `applyEnvironment()` (`await import()` does not work — `module: nodenext` emits real ESM even
+> from a CommonJS file, and Node's resolver rejects an extensionless specifier), and
+> `verifyEnvironment()` reads `databasePath`, `demoMode` and `mcpServers` back off the booted
+> `AppConfigService` and throws if they disagree with the flags.
+>
+> **Add a setting to `applyEnvironment` and add it to `verifyEnvironment` too.** A setting that
+> is applied but not checked is exactly the shape of this bug, and its failure mode is not an
+> error — it is a suite that runs to completion and measures something else.
+
 ### 2. Long-term memory is reset between questions
 
 `recall` injects remembered facts into the planner before `triage`; `remember` writes after

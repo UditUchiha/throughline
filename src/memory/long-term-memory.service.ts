@@ -166,6 +166,7 @@ export class LongTermMemoryService {
    * was close enough to actually be used.
    */
   async recall(question: string, signal?: AbortSignal): Promise<MemoryFact[]> {
+    if (!this.config.longTermMemory) return [];
     if ((await this.facts.countFacts()) === 0) return [];
 
     const [embedding] = await this.embeddings.embed([question], signal);
@@ -192,6 +193,12 @@ export class LongTermMemoryService {
     signal?: AbortSignal,
   ): Promise<{ stored: MemoryFact[]; merged: MemoryFact[] }> {
     try {
+      // Ahead of every other gate, and deliberately uncounted. The funnel measures
+      // what the extractor decided; a run that never reached the extractor is not
+      // a rejection and recording it as one would put "the feature is switched
+      // off" and "the question mentioned nobody" in the same number.
+      if (!this.config.longTermMemory) return { stored: [], merged: [] };
+
       // Before the model call, not after it — the saving *is* the point. Counted
       // so the gate keeps the evidence for itself: see `skippedNoSelfReference`.
       if (!mentionsSelf(exchange.question)) {
@@ -243,6 +250,11 @@ export class LongTermMemoryService {
    * is the pass that catches those.
    */
   async consolidate(): Promise<{ merged: number; forgotten: number }> {
+    // Nothing is being written, so there is nothing to merge or age out — and
+    // `mergeNearDuplicates` costs one embedding call per surviving fact, which
+    // is not a bill a switched-off feature should run up every six hours.
+    if (!this.config.longTermMemory) return { merged: 0, forgotten: 0 };
+
     const forgotten = await this.forgetStale();
     const merged = await this.mergeNearDuplicates();
     if (merged > 0 || forgotten > 0) {

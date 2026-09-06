@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AiModule } from '../ai/ai.module';
 import { ConfigModule } from '../config/config.module';
 import { DatabaseModule } from '../database/database.module';
@@ -9,8 +10,11 @@ import { MemoryModule } from '../memory/memory.module';
 import { RagModule } from '../rag/rag.module';
 import { ObservabilityModule } from '../observability/observability.module';
 import { RepositoriesModule } from '../repositories/repositories.module';
+import { AppConfigService } from '../config/app-config.service';
 import { AgentController } from './agent.controller';
 import { AgentGraphService } from './agent-graph.service';
+import { AskThrottlerGuard } from './ask-throttler.guard';
+import { QuotaFallbackService } from './quota-fallback.service';
 import { agentCheckpointerProvider } from './checkpointing/agent-checkpointer';
 import { RunReplayService } from './replay/run-replay.service';
 import { ExampleQuestionsService } from './examples/example-questions.service';
@@ -44,9 +48,24 @@ import { ToolRegistry } from './tools/tool-registry';
     // checkpointer takes the live connection rather than opening its own. See
     // that provider for why it is not a repository port.
     DatabaseModule,
+    // In-memory storage, which is the right choice and not a compromise: §9
+    // deploys a single container, so a shared store would be a network hop and a
+    // second service to keep free in exchange for coordinating one replica with
+    // itself. It resets when the container restarts — on an ephemeral free tier
+    // that is every cold start, and it means the limit is a brake on a burst
+    // rather than a durable budget. Which is what it is for.
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService) => ({
+        throttlers: [{ ttl: config.rateLimitWindowMs, limit: config.rateLimitMaxAsks }],
+      }),
+    }),
   ],
   controllers: [AgentController],
   providers: [
+    AskThrottlerGuard,
+    QuotaFallbackService,
     RunReplayService,
     ExampleQuestionsService,
     MailSearchTool,

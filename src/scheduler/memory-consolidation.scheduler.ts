@@ -23,6 +23,13 @@ export class MemoryConsolidationScheduler implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
+    // Not merely a no-op tick — no interval at all, so `SchedulerRegistry` does
+    // not list maintenance for a store nothing writes to (PLAN.md §9).
+    if (!this.config.longTermMemory) {
+      this.logger.log('Long-term memory is off (LONG_TERM_MEMORY=false) — consolidation idle');
+      return;
+    }
+
     const interval = setInterval(
       () => void this.consolidate(),
       this.config.memoryConsolidationIntervalMs,

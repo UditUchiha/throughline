@@ -1,0 +1,35 @@
+# Keeps the build context small and, more importantly, keeps local state out of
+# the image. The two entries that matter are `database/` and `.env` — the first
+# is where a developer's traces, checkpoints and pending writes live (~9.6MB of
+# the 14MB local file), the second is a real API key. Neither has any business
+# in a published image, and the Dockerfile builds its own database from scratch
+# rather than copying one.
+
+node_modules
+dist
+coverage
+
+.env*
+!.env.example
+
+database/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+.git
+.github
+.claude
+.remember
+
+ui/
+evals/
+test/
+docs/
+
+# The vault the demo connector serves is copied explicitly by the Dockerfile;
+# nothing else under fixtures/ is needed at build time.
+**/*.spec.ts
+*.log
+.DS_Store
