@@ -26,6 +26,7 @@ export const KNOWN_CATEGORIES = [
   'temporal',
   'distractor',
   'unanswerable',
+  'adversarial',
 ] as const;
 
 export type KnownCategory = (typeof KNOWN_CATEGORIES)[number];

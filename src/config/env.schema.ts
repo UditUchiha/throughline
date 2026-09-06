@@ -2,16 +2,69 @@ import { z } from 'zod';
 
 const llmProviderEnum = z.enum(['gemini', 'groq', 'openrouter', 'ollama']).default('gemini');
 const embeddingProviderEnum = z.enum(['gemini', 'ollama']).default('gemini');
+// Mirrors CorpusSource in src/common/types/knowledge.types.ts. Declared again rather
+// than imported so the env schema stays free of domain imports — it is parsed before
+// anything else exists, and a cycle here fails the boot in a very confusing way.
+const corpusSourceEnum = z.enum(['mail', 'chat', 'notes']);
 
 // `z.coerce.boolean()` is not usable for env flags: it follows JS truthiness, so the
 // string "false" coerces to `true`. Enumerating the accepted spellings instead means a
 // typo fails at boot with a readable message rather than silently enabling something.
-const envBoolean = z
-  .string()
-  .default('false')
-  .transform((raw) => raw.trim().toLowerCase())
-  .pipe(z.enum(['true', 'false', '1', '0']))
-  .transform((value) => value === 'true' || value === '1');
+//
+// A factory rather than a single schema because not every flag defaults off — see
+// DEMO_MODE — and stacking a second `.default()` onto a finished pipeline is the kind
+// of Zod subtlety that reads as a bug six months later.
+const envBoolean = (fallback: 'true' | 'false' = 'false') =>
+  z
+    .string()
+    .default(fallback)
+    .transform((raw) => raw.trim().toLowerCase())
+    .pipe(z.enum(['true', 'false', '1', '0']))
+    .transform((value) => value === 'true' || value === '1');
+
+/**
+ * One MCP server the host connects to, as it appears in `MCP_SERVERS`.
+ *
+ * A server is launched, not dialled: `command` + `args` is a child process
+ * speaking MCP over stdio, which is how every local connector (Obsidian,
+ * filesystem) ships. That means the value of this variable is a command line the
+ * API will execute — treat it with the same care as any other, and note that it
+ * is read once at boot and never from anything a model produced.
+ */
+const mcpServerSchema = z.object({
+  /**
+   * Registry prefix for this server's tools, and the `evidenceId` namespace for
+   * everything it returns. Constrained to the shape a tool name can take, because
+   * it becomes one: `obsidian` yields `obsidian_search_notes`.
+   */
+  name: z.string().regex(/^[a-z][a-z0-9_]*$/, 'MCP server name must be lower_snake_case'),
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  /** Extra environment for the child process — an API token, a vault path. */
+  env: z.record(z.string(), z.string()).default({}),
+  /**
+   * Which corpus source this server's content is filed under, so its evidence
+   * renders alongside the corpus rather than as an unstyled fourth category. A
+   * vault is `notes`, Gmail is `mail`, Slack is `chat` — the three the UI
+   * already has a colour for (PLAN.md §5/M5 targets them in exactly that order).
+   */
+  source: corpusSourceEnum,
+  /**
+   * The tools on that server the agent may call. **Required, and an allowlist
+   * rather than a denylist**: an MCP server advertises whatever it likes,
+   * including writes and deletes, and discovery is not consent. A server whose
+   * allowlist names nothing it exposes registers no tools and says so at boot.
+   */
+  allowTools: z.array(z.string().min(1)).min(1),
+  /**
+   * The parameter the search query goes in, when the server does not call it
+   * `query`. Left unset, the host infers it from the tool's own input schema —
+   * see `resolveQueryArg`.
+   */
+  queryArg: z.string().min(1).optional(),
+});
+
+export type McpServerConfig = z.output<typeof mcpServerSchema>;
 
 export const envSchema = z
   .object({
@@ -111,6 +164,158 @@ export const envSchema = z
       .positive()
       .default(60 * 1000),
 
+    // --- Connectors (PLAN.md §5/M5) ---
+
+    /**
+     * Serve the connectors from bundled synthetic data instead of connecting to
+     * anything real.
+     *
+     * Defaults to **on**, which is the unusual choice and the deliberate one:
+     * §9's deployed instance runs this way, and so does every fresh clone, so the
+     * default that makes `git clone && pnpm start` demonstrate the connector is
+     * the one that should need no configuration. Live connectors are the
+     * local-only capability (§5/M5), not the other way round.
+     *
+     * This is **not** `?demo=1`. That query parameter replays a recorded run from
+     * `fixtures/runs/` and makes no model calls at all. DEMO_MODE runs the entire
+     * live pipeline — triage, planning, retrieval, synthesis, memory — and only
+     * swaps *where a connector's documents come from*. Conflating the two is how
+     * the deployed demo ends up replaying fixtures and never exercising anything.
+     *
+     * It removes the need for *connector* credentials — a Gmail OAuth grant, a
+     * Slack token, a vault on disk. It does not remove the need for an LLM key;
+     * nothing can answer a question without one.
+     */
+    DEMO_MODE: envBoolean('true'),
+
+    /**
+     * MCP servers to connect to at boot, as a JSON array. Ignored (with a warning)
+     * while DEMO_MODE is on.
+     *
+     * Discovery happens once, at boot, and the tool registry is built from the
+     * result — a server that is down when the API starts is logged and skipped for
+     * the lifetime of the process rather than appearing later. That is a
+     * deliberate limit: the registry is immutable by construction, which is what
+     * lets the planner read a stable tool menu, and a hot-reloading registry is an
+     * abstraction with exactly one caller (PLAN.md §0.4).
+     */
+    MCP_SERVERS: z
+      .string()
+      .default('[]')
+      .transform((raw, ctx) => {
+        try {
+          return JSON.parse(raw) as unknown;
+        } catch {
+          ctx.addIssue({ code: 'custom', message: 'MCP_SERVERS must be valid JSON' });
+          return z.NEVER;
+        }
+      })
+      .pipe(z.array(mcpServerSchema)),
+
+    /**
+     * The synthetic vault DEMO_MODE's Obsidian connector serves. Committed, so a
+     * clone has one; small on purpose, since it is searched lexically rather than
+     * by embedding and is meant to be read by a visitor in a few seconds.
+     */
+    MCP_DEMO_VAULT_PATH: z.string().min(1).default('./fixtures/mcp/vault'),
+
+    /**
+     * Budget for connecting to an MCP server, listing its tools, and each search
+     * call afterwards.
+     *
+     * Generous because the first connection is the slow one: a stdio server
+     * launched through `npx` may download the package before it says anything,
+     * and a boot that gives up after two seconds looks exactly like a broken
+     * server. A search is additionally bounded by the run's own deadline, which
+     * travels with the call as an AbortSignal.
+     */
+    MCP_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(15 * 1000),
+
+    // --- Memory (PLAN.md §5/M4.1) ---
+
+    // How many sessions the LangGraph checkpointer keeps. Oldest are pruned after
+    // each run, on the same reasoning as TRACE_RETENTION_RUNS below and for a
+    // sharper reason: a checkpoint is written on *every superstep*, carrying the
+    // whole state including retrieved evidence, so one turn leaves ~7 snapshots
+    // rather than one row. Measured on a real three-turn session: 22 checkpoint
+    // rows, 93 pending-write rows, 231KB — roughly 77KB per turn, which is
+    // several times what the same conversation costs the trace store. Unbounded,
+    // the store that lets the agent remember a conversation becomes a log of
+    // every intermediate state it has ever been in, and §9 ships
+    // `database/app.db` inside the image.
+    CHECKPOINT_RETENTION_SESSIONS: z.coerce.number().int().positive().default(50),
+
+    // Minimum importance (0..1, assigned at extraction) for a candidate fact to be
+    // considered at all. The floor is the cheapest stage of the funnel — it costs no
+    // embedding call — so it is deliberately the first gate, and it is what keeps
+    // "the system stores roughly N% of what it could" a real number rather than a
+    // description of an append-only log.
+    MEMORY_IMPORTANCE_FLOOR: z.coerce.number().min(0).max(1).default(0.5),
+
+    // Vector distance at or below which a candidate is treated as *the same fact*
+    // already stored, and merged into it instead of inserted.
+    //
+    // **L2, and specific to the current embedding model** — the same portability
+    // trap `RETRIEVAL_DISTANCE_THRESHOLD` above documents at length. Derived from
+    // measurement rather than feel, against `gemini-embedding-001` at 768d
+    // (docs/memory-dedup-threshold.md): restatements of one fact land at
+    // 0.087–0.276, related-but-distinct facts at 0.405–0.463, unrelated at
+    // 0.51–0.59. 0.35 sits in the empty band between the first two groups with
+    // margin on both sides. Re-derive it if the embedding model changes; too high
+    // silently merges two different preferences into one, which is worse than a
+    // duplicate.
+    MEMORY_DEDUP_DISTANCE: z.coerce.number().positive().default(0.35),
+
+    // How many remembered facts are injected into a run's context. Small on
+    // purpose: memory competes with retrieved evidence for a free-tier context
+    // window, and an irrelevant "fact" in the planner's prompt actively misdirects
+    // retrieval.
+    MEMORY_TOP_K: z.coerce.number().int().positive().default(3),
+
+    // Ceiling on how far a stored fact may sit from the question and still be
+    // recalled into a run. Above it, the fact is not about what is being asked.
+    //
+    // Without one, `recall` took the k nearest *regardless of distance*, so a
+    // store smaller than MEMORY_TOP_K returned everything to every question —
+    // exactly the "an irrelevant fact actively misdirects retrieval" failure
+    // MEMORY_TOP_K's own comment describes. It also killed decay: `markUsed`
+    // stamps whatever is returned, so every run refreshed every fact and
+    // MEMORY_TTL_DAYS could never find a candidate to forget.
+    //
+    // **L2, and specific to the embedding model** — the same portability trap as
+    // MEMORY_DEDUP_DISTANCE and RETRIEVAL_DISTANCE_THRESHOLD. Derived from the
+    // same nine labelled pairs (docs/memory-dedup-threshold.md), which put
+    // related-but-distinct facts at 0.405–0.463 and unrelated text at
+    // 0.513–0.588. 0.49 takes the empty band between them, admitting a fact that
+    // is merely *adjacent* to the question — "works on Helios" is worth recalling
+    // for a Helios question — while excluding one that is about something else.
+    //
+    // ⚠️ **Weaker evidence than MEMORY_DEDUP_DISTANCE.** That band is 0.13 wide
+    // with five points below it; this one is 0.05 wide with two points on each
+    // side. It is the best available number rather than a well-supported one, and
+    // unlike RETRIEVAL_DISTANCE_THRESHOLD it was at least measured against the
+    // model actually in use. Re-derive it in M6 alongside the retention rate.
+    MEMORY_RECALL_DISTANCE: z.coerce.number().positive().default(0.49),
+
+    // A fact no question has touched in this many days is forgotten by the
+    // consolidation job. Measured from `last_used_at` (when it was last retrieved
+    // into a run) rather than `updated_at`, because "nothing anyone asks needs
+    // this" is the signal worth acting on.
+    MEMORY_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+    // How often consolidation runs: merge near-duplicates that accumulated between
+    // extractions, then forget what aged out. Rare on purpose — it is maintenance,
+    // and it costs one embedding call per surviving fact.
+    MEMORY_CONSOLIDATION_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(6 * 60 * 60 * 1000),
+
     // --- Observability (PLAN.md §5/M3) ---
 
     // LangGraph and the LangSmith OpenAI wrapper both read these from `process.env`
@@ -128,7 +333,7 @@ export const envSchema = z
     // `evidence_added`, so 200 is a handful of megabytes at worst.
     TRACE_RETENTION_RUNS: z.coerce.number().int().positive().default(200),
 
-    LANGSMITH_TRACING: envBoolean,
+    LANGSMITH_TRACING: envBoolean(),
     LANGSMITH_API_KEY: z.string().optional(),
     LANGSMITH_PROJECT: z.string().min(1).default('throughline'),
     LANGSMITH_ENDPOINT: z.url().default('https://api.smith.langchain.com'),

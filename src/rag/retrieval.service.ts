@@ -55,7 +55,7 @@ export class RetrievalService {
     const articleById = new Map(articles.filter((a) => a !== null).map((a) => [a.id, a]));
 
     const results: RetrievedChunk[] = hits
-      .map((hit) => {
+      .map((hit): RetrievedChunk | null => {
         const chunk = chunkById.get(hit.chunkId);
         if (!chunk) return null;
         const article = articleById.get(chunk.articleId);

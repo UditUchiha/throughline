@@ -6,6 +6,7 @@ import { RepositoriesModule } from './repositories/repositories.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { RagModule } from './rag/rag.module';
 import { AgentModule } from './agent/agent.module';
+import { MemoryModule } from './memory/memory.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 
@@ -17,6 +18,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
     KnowledgeModule,
     RagModule,
     AgentModule,
+    MemoryModule,
     ObservabilityModule,
     SchedulerModule,
   ],

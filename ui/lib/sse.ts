@@ -61,6 +61,7 @@ const KNOWN_EVENT_TYPES = new Set<string>([
   'reflect_done',
   'memory_read',
   'memory_written',
+  'followup_resolved',
   'token_delta',
   'run_finished',
   'run_failed',

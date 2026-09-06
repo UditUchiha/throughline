@@ -16,10 +16,26 @@ import type {
  * top. Adding a variant is cheap; changing or removing one breaks the UI, so
  * treat existing members as append-only.
  *
- * `memory_read` / `memory_written` are wired in M4 and emit empty until then.
+ * `memory_read` / `memory_written` carry short-term (within-session) memory as of
+ * M4.1; M4.2 adds long-term facts to the same two events.
  */
 export type AgentEvent =
-  | { type: 'run_started'; runId: string; question: string }
+  | {
+      type: 'run_started';
+      runId: string;
+      question: string;
+      /**
+       * The session this run belongs to — minted by the server when the caller
+       * sends none, which is why the caller has to be *told* it rather than
+       * assumed to know it. Sending it back on the next question is what makes a
+       * follow-up a follow-up (PLAN.md §5/M4.1).
+       *
+       * Optional because the contract is append-only: the fixtures in
+       * `fixtures/runs/` predate the field, and a replayed run has no session —
+       * a recording is not a conversation.
+       */
+      sessionId?: string;
+    }
   /**
    * Always the first event of a replayed run, never emitted by a live one.
    *
@@ -58,6 +74,15 @@ export type AgentEvent =
   | { type: 'reflect_done'; gapFound: boolean; followUps: SubQuestion[] }
   | { type: 'memory_read'; refs: MemoryRef[] }
   | { type: 'memory_written'; refs: MemoryRef[] }
+  /**
+   * `recall` rewrote a follow-up into a standalone question before triage.
+   *
+   * Emitted only when the text actually changed, so its presence is the signal:
+   * every other event in the run describes the *resolved* question, and without
+   * this one a consumer would show an answer to "who approved it?" with no way
+   * to tell whether the agent understood what "it" was.
+   */
+  | { type: 'followup_resolved'; original: string; resolved: string }
   | { type: 'token_delta'; text: string }
   | {
       type: 'run_finished';

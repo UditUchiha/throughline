@@ -55,13 +55,37 @@ export interface Citation {
 }
 
 /**
- * Long-term memory reference. Memory is M4 — this shape exists so the state and
- * the event contract can be frozen now, and is emitted empty until then.
+ * One thing memory handed a run, or one thing the run committed to it.
+ *
+ * `kind` is free-form on purpose: M4.1 emits `session_turn`, and M4.2's durable
+ * facts join the same two events under their own kinds rather than needing a
+ * second pair of variants in a frozen contract.
  */
 export interface MemoryRef {
   id: string;
   kind: string;
   text: string;
+}
+
+/**
+ * One completed exchange in a session, as short-term memory keeps it.
+ *
+ * `question` is what the visitor typed; `standalone` is the rewritten,
+ * self-contained form when `recall` had to resolve a pronoun against earlier
+ * turns. Both are kept because they answer different questions: the literal
+ * utterance is what M4.2's extraction will mine for preferences and
+ * corrections, and the standalone form is what makes the *next* follow-up
+ * resolvable ("who approved it?" is useless context; "who approved the new
+ * Helios launch date?" is not).
+ */
+export interface SessionTurn {
+  question: string;
+  /** Absent when the question needed no resolving. */
+  standalone?: string;
+  answer: string;
+  abstained: boolean;
+  /** ISO timestamp, so a recalled turn can be described by age. */
+  at: string;
 }
 
 export interface AgentAnswer {

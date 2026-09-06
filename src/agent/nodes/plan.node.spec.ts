@@ -62,6 +62,7 @@ function graphConfig(): { config: LangGraphRunnableConfig; emitted: EmittedAgent
 function state(question: string): AgentState {
   return {
     question,
+    askedQuestion: question,
     sessionId: 'session-1',
     runId: 'run-1',
     complexity: 'complex',
@@ -71,6 +72,7 @@ function state(question: string): AgentState {
     hops: 0,
     answer: null,
     events: [],
+    turns: [],
   };
 }
 

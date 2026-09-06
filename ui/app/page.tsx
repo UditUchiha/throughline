@@ -9,7 +9,14 @@ import {
   type DemoRun,
   type ExampleQuestion,
 } from '@/lib/api';
-import { applyEvent, emptyRun, startRun, type RunView } from '@/lib/run-state';
+import {
+  applyEvent,
+  emptyRun,
+  startRun,
+  type ResolvedQuestion,
+  type RunView,
+} from '@/lib/run-state';
+import { clearStoredSession, readStoredSession, storeSession } from '@/lib/session';
 import { AskBar } from '@/components/AskBar';
 import { AnswerPanel } from '@/components/AnswerPanel';
 import { EvidencePanel } from '@/components/EvidencePanel';
@@ -30,6 +37,18 @@ export default function Page() {
   const [demoRuns, setDemoRuns] = useState<DemoRun[]>([]);
   const [focus, setFocus] = useState<{ evidenceId: string; nonce: number } | null>(null);
   const [nowMs, setNowMs] = useState(0);
+  /**
+   * The conversation this tab is in.
+   *
+   * Held here rather than inside `view`, which is one run: the whole point is
+   * that it outlives a run. The API mints it on the first question and reports it
+   * on `run_started`, so this starts null and is never generated locally — two
+   * sides inventing session ids is how you get a conversation the server does not
+   * think exists. Mirrored into `sessionStorage` so a refresh does not silently
+   * start a new conversation (PLAN.md §11.8).
+   */
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [turn, setTurn] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
   /** Monotonic across the whole session — see `cite` below for why it cannot reset. */
@@ -51,6 +70,33 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
     if (requested === '1' || requested === 'true') setDemo(true);
   }, []);
+
+  // Restores the conversation after a refresh. Same constraint as the effect
+  // above — `sessionStorage` does not exist during prerender, so reading it in a
+  // `useState` initializer would render one thing on the server and another on
+  // the client. The run itself is not restored, only the thread it belongs to:
+  // re-streaming a finished run would cost model calls to redraw a panel.
+  useEffect(() => {
+    const stored = readStoredSession();
+    if (!stored) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
+    setSessionId(stored.sessionId);
+    setTurn(stored.turn);
+  }, []);
+
+  // Mirrors the conversation into `sessionStorage` whenever it changes.
+  //
+  // An effect rather than a write inside the `setTurn` updater below, which is
+  // where this started. React treats updaters as pure and may run one twice, or
+  // for a render it then throws away — so a storage write in there can persist a
+  // turn count that never became state. Keyed on both values, so it records
+  // whatever the state actually settled on, and skipped while there is no
+  // session so that the reset button's `clearStoredSession` is not immediately
+  // undone.
+  useEffect(() => {
+    if (!sessionId) return;
+    storeSession({ sessionId, turn });
+  }, [sessionId, turn]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -100,16 +146,31 @@ export default function Page() {
 
       setFocus(null);
       setConnectionError(null);
-      setView(startRun(trimmed));
+      setView(startRun(trimmed, sessionId));
 
       void (async () => {
         try {
-          for await (const event of askStream(trimmed, { demo, signal: controller.signal })) {
+          for await (const event of askStream(trimmed, {
+            demo,
+            sessionId: sessionId ?? undefined,
+            signal: controller.signal,
+          })) {
             // Aborting does not always surface as a rejection: events already
             // decoded from the last chunk arrive without another read. Without
             // this, Stop could be undone by a buffered `run_finished`, and a
             // reset could be repopulated by the run it just cleared.
             if (controller.signal.aborted) return;
+            // Adopting the server's id is what turns the *next* question into a
+            // follow-up. A replay reports none, and must not end a live session.
+            if (event.type === 'run_started' && event.sessionId) {
+              const started = event.sessionId;
+              setSessionId(started);
+              // Derived from the previous count rather than from `turn` directly,
+              // so a second question started before the first finished still
+              // lands on the right number. Persisting happens in an effect — see
+              // where `storeSession` is called.
+              setTurn((count) => (started === sessionId ? count + 1 : 1));
+            }
             setView((current) => applyEvent(current, event));
           }
           if (controller.signal.aborted) return;
@@ -127,7 +188,7 @@ export default function Page() {
         }
       })();
     },
-    [demo],
+    [demo, sessionId],
   );
 
   const stop = useCallback(() => {
@@ -162,7 +223,7 @@ export default function Page() {
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
-      <Header demo={demo} busy={busy} />
+      <Header demo={demo} busy={busy} turn={turn} sessionId={sessionId} />
 
       <div className="mt-6 space-y-4">
         <AskBar
@@ -194,9 +255,12 @@ export default function Page() {
 
         {view.status !== 'idle' && (
           <>
-            <p className="px-1 text-lg leading-snug font-medium text-balance text-ink-100 sm:text-xl">
-              {view.question}
-            </p>
+            <div className="space-y-1.5 px-1">
+              <p className="text-lg leading-snug font-medium text-balance text-ink-100 sm:text-xl">
+                {view.question}
+              </p>
+              {view.resolvedQuestion && <ResolvedQuestionNote resolved={view.resolvedQuestion} />}
+            </div>
 
             {/* Trace on the left, payoff on the right. On a phone this collapses to
                 one column in graph order — triage, plan, retrieval, then answer —
@@ -220,6 +284,10 @@ export default function Page() {
               </div>
             </div>
 
+            {/* Asking another question in the bar above *continues* the session,
+                which is the behaviour worth having by default. This is the way
+                out of it: a visitor who has moved on to an unrelated subject
+                should not have their pronouns resolved against the old one. */}
             <button
               type="button"
               onClick={() => {
@@ -227,10 +295,13 @@ export default function Page() {
                 setView(emptyRun);
                 setFocus(null);
                 setQuestion('');
+                setSessionId(null);
+                setTurn(0);
+                clearStoredSession();
               }}
               className="font-mono text-[0.7rem] text-ink-500 underline decoration-dotted underline-offset-4 transition hover:text-ink-300"
             >
-              ask something else
+              start a new session
             </button>
           </>
         )}
@@ -241,7 +312,32 @@ export default function Page() {
   );
 }
 
-function Header({ demo, busy }: { demo: boolean; busy: boolean }) {
+/**
+ * What `recall` did, shown next to what was typed.
+ *
+ * Every other panel on the page describes the *resolved* question, so without
+ * this a follow-up looks like the agent answering something the visitor did not
+ * ask. Rendering both is also the only way to catch it resolving one wrongly.
+ */
+function ResolvedQuestionNote({ resolved }: { resolved: ResolvedQuestion }) {
+  return (
+    <p className="font-mono text-[0.7rem] leading-relaxed text-ink-500">
+      <span className="text-ink-700">read as</span> {resolved.resolved}
+    </p>
+  );
+}
+
+function Header({
+  demo,
+  busy,
+  turn,
+  sessionId,
+}: {
+  demo: boolean;
+  busy: boolean;
+  turn: number;
+  sessionId: string | null;
+}) {
   return (
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
@@ -254,19 +350,34 @@ function Header({ demo, busy }: { demo: boolean; busy: boolean }) {
         </p>
       </div>
 
-      <span
-        className={`inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[0.65rem] tracking-wide ${
-          demo ? 'border-warn/40 bg-warn/10 text-warn' : 'border-signal/40 bg-signal/10 text-signal'
-        }`}
-      >
+      <div className="flex w-fit shrink-0 items-center gap-2">
+        {/* Turn 2 onward only: on turn 1 there is no conversation to be in, and a
+            badge reading "turn 1" would suggest continuity that does not exist. */}
+        {sessionId && turn > 1 && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-ink-900/60 px-2.5 py-1 font-mono text-[0.65rem] tracking-wide text-ink-500"
+            title={`Session ${sessionId}`}
+          >
+            turn {turn}
+          </span>
+        )}
+
         <span
-          className={`size-1.5 rounded-full ${demo ? 'bg-warn' : 'bg-signal'} ${
-            busy ? 'running-bar' : ''
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[0.65rem] tracking-wide ${
+            demo
+              ? 'border-warn/40 bg-warn/10 text-warn'
+              : 'border-signal/40 bg-signal/10 text-signal'
           }`}
-          aria-hidden
-        />
-        {demo ? 'replay' : 'live'}
-      </span>
+        >
+          <span
+            className={`size-1.5 rounded-full ${demo ? 'bg-warn' : 'bg-signal'} ${
+              busy ? 'running-bar' : ''
+            }`}
+            aria-hidden
+          />
+          {demo ? 'replay' : 'live'}
+        </span>
+      </div>
     </header>
   );
 }

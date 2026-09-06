@@ -15,6 +15,10 @@
  *   pnpm corpus:generate --dry-run         # print prompts, call nothing, write nothing
  *   pnpm corpus:generate --verify-only    # re-check corpus on disk, no model calls
  *
+ * A document with a `verbatim` body in documents.yaml is written straight to disk with
+ * no model call and no rate-limit delay — see the VerbatimBody type below for why the
+ * adversarial set works that way.
+ *
  * Requires GEMINI_API_KEY in the environment (see .env.example). Uses Gemini because
  * it's fast, has a generous free tier, and matches the provider the author intends to
  * use as this project's default cloud LLM (PLAN.md §11.3) — but this script is not
@@ -67,7 +71,31 @@ interface Fact {
   supersedes: string | null;
 }
 
-interface MailDoc {
+/**
+ * Body text to use instead of calling the model, for documents whose exact
+ * wording is the point (M5's adversarial set — see `adversarial: true` in
+ * documents.yaml).
+ *
+ * An injection payload has to be byte-exact for resistance to mean anything: the
+ * eval suite scores whether a specific instruction was obeyed and whether a
+ * specific marker string reached the answer, and a model asked to write an attack
+ * string will paraphrase it, soften it, or decline. Laundering the attack through
+ * the generator would make the corpus's most security-relevant documents the only
+ * ones nobody can predict.
+ *
+ * This does not weaken the ledger-first rule (PLAN.md §6). The fact is still
+ * authored before the document, documents.yaml still assigns it, and the literal-
+ * token verifier still checks that it survived. Only the prose stops being
+ * generated — which PLAN.md §12.2 already permits for hand-editing, made explicit
+ * and principled here rather than done quietly afterwards.
+ */
+interface VerbatimBody {
+  verbatim?: string;
+  /** Marks a document written to attack the reader. Documentation, not behaviour. */
+  adversarial?: boolean;
+}
+
+interface MailDoc extends VerbatimBody {
   docId: string;
   threadId: string;
   subject: string;
@@ -78,7 +106,7 @@ interface MailDoc {
   brief: string;
 }
 
-interface ChatDoc {
+interface ChatDoc extends VerbatimBody {
   docId: string;
   channel: string;
   date: string;
@@ -87,7 +115,7 @@ interface ChatDoc {
   brief: string;
 }
 
-interface NoteDoc {
+interface NoteDoc extends VerbatimBody {
   docId: string;
   title: string;
   tags: string[];
@@ -313,6 +341,18 @@ async function callGemini(prompt: string): Promise<string> {
   }
 
   throw new Error('unreachable');
+}
+
+/**
+ * One generated body, rate-limited.
+ *
+ * The delay keeps the script under Gemini's free-tier requests-per-minute cap.
+ * It sits here rather than in the main loop so that a verbatim document — which
+ * makes no request at all — does not pay for a rate limit it is not subject to.
+ */
+async function generateBody(prompt: string): Promise<string> {
+  await new Promise((resolve) => setTimeout(resolve, 4500));
+  return callGemini(prompt);
 }
 
 // ---------------------------------------------------------------------------
@@ -567,14 +607,14 @@ async function main() {
     const path = filePathFor(source, doc);
 
     if (dryRun) {
-      console.log(`--- ${doc.docId} (${path}) ---\n${prompt}\n`);
+      const preview = doc.verbatim ? `[verbatim body]\n${doc.verbatim}` : prompt;
+      console.log(`--- ${doc.docId} (${path}) ---\n${preview}\n`);
       return;
     }
 
-    // Insert intentional 4.5-second delay to stay under gemini-1.5-flash's 15 RPM free-tier limit
-    await new Promise((r) => setTimeout(r, 4500));
-
-    const body = await callGemini(prompt);
+    // A verbatim document costs no call and no quota, so it also skips the rate
+    // limiter below — regenerating the adversarial set is free and instant.
+    const body = doc.verbatim ? doc.verbatim.trim() : await generateBody(prompt);
     const retrievableText = `${heading(source, doc)}\n\n${body}\n`;
     const content = `${buildFrontmatter(source, doc)}\n\n${retrievableText}`;
 

@@ -14,6 +14,10 @@ export const questionCategories = [
   'temporal',
   'distractor',
   'unanswerable',
+  // M5. A question whose supporting document also carries a prompt-injection
+  // payload: correct behaviour is to answer the question asked and ignore the
+  // instruction embedded in the evidence. Scored in M6.
+  'adversarial',
 ] as const;
 
 export type QuestionCategory = (typeof questionCategories)[number];

@@ -1,17 +1,28 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { END, START, StateGraph, type LangGraphRunnableConfig } from '@langchain/langgraph';
+import {
+  END,
+  START,
+  StateGraph,
+  type BaseCheckpointSaver,
+  type LangGraphRunnableConfig,
+} from '@langchain/langgraph';
 import { AppConfigService } from '../config/app-config.service';
+import { AGENT_CHECKPOINTER } from './checkpointing/agent-checkpointer';
+import { CHECKPOINT_REPOSITORY } from '../repositories/ports/tokens';
+import type { CheckpointRepository } from '../repositories/ports/checkpoint.repository';
 import type { AgentAnswer } from './agent.types';
 import { AGENT_RUN_CONTEXT, beginNodeSpan, type AgentRunContext } from './agent-run-context';
 import { TraceCollector } from '../observability/trace-collector.service';
 import type { AgentEvent, AgentEventSink, EmittedAgentEvent } from './events';
 import { ExecuteNode } from './nodes/execute.node';
 import { PlanNode } from './nodes/plan.node';
+import { RecallNode } from './nodes/recall.node';
+import { RememberNode } from './nodes/remember.node';
 import { ReflectNode } from './nodes/reflect.node';
 import { SynthesizeNode } from './nodes/synthesize.node';
 import { TriageNode } from './nodes/triage.node';
-import { AgentStateAnnotation, type AgentState } from './state';
+import { AgentStateAnnotation, NEW_TURN_RESET, type AgentState } from './state';
 
 export interface AgentRunOptions {
   question: string;
@@ -50,12 +61,16 @@ export class AgentGraphService {
 
   constructor(
     private readonly config: AppConfigService,
+    private readonly recallNode: RecallNode,
     private readonly triageNode: TriageNode,
     private readonly planNode: PlanNode,
     private readonly executeNode: ExecuteNode,
     private readonly reflectNode: ReflectNode,
     private readonly synthesizeNode: SynthesizeNode,
+    private readonly rememberNode: RememberNode,
     private readonly traces: TraceCollector,
+    @Inject(AGENT_CHECKPOINTER) private readonly checkpointer: BaseCheckpointSaver,
+    @Inject(CHECKPOINT_REPOSITORY) private readonly checkpoints: CheckpointRepository,
   ) {
     this.graph = this.build();
   }
@@ -66,6 +81,9 @@ export class AgentGraphService {
     // node keeps the nodes unaware of tracing, and means a node added later is
     // traced by construction rather than by remembering to instrument it.
     const builder = new StateGraph(AgentStateAnnotation)
+      .addNode('recall', (state, config) =>
+        this.timed('recall', config, () => this.recallNode.run(state, config)),
+      )
       .addNode('triage', (state, config) =>
         this.timed('triage', config, () => this.triageNode.run(state, config)),
       )
@@ -81,7 +99,14 @@ export class AgentGraphService {
       .addNode('synthesize', (state, config) =>
         this.timed('synthesize', config, () => this.synthesizeNode.run(state, config)),
       )
-      .addEdge(START, 'triage')
+      .addNode('remember', (state, config) =>
+        this.timed('remember', config, () => this.rememberNode.run(state, config)),
+      )
+      // `recall` first, so a follow-up is resolved into a standalone question
+      // before anything reads it. It costs no model call on the first turn of a
+      // session, which is the common case (PLAN.md §5/M4.1).
+      .addEdge(START, 'recall')
+      .addEdge('recall', 'triage')
       // A simple question skips planning entirely; triage has already seeded the
       // single broad retrieval that `execute` will run.
       .addConditionalEdges(
@@ -96,9 +121,16 @@ export class AgentGraphService {
         (state: AgentState) => (this.shouldLoop(state) ? 'execute' : 'synthesize'),
         { execute: 'execute', synthesize: 'synthesize' },
       )
-      .addEdge('synthesize', END);
+      // After synthesis, not before: extraction needs the answer, and by this
+      // point the answer has already streamed as `token_delta`. Only the stats
+      // in `run_finished` wait on it (PLAN.md §5/M4.2).
+      .addEdge('synthesize', 'remember')
+      .addEdge('remember', END);
 
-    return builder.compile();
+    // Keyed by `sessionId` at invoke time — see `run()`. The checkpointer is what
+    // makes `state.turns` outlive a run, and it is also why every other channel
+    // has to be explicitly cleared per turn (see NEW_TURN_RESET).
+    return builder.compile({ checkpointer: this.checkpointer });
   }
 
   /**
@@ -178,12 +210,30 @@ export class AgentGraphService {
     const emit = (event: AgentEvent) =>
       sink({ ...event, seq: context.counter.seq++, ts: new Date().toISOString() });
 
-    emit({ type: 'run_started', runId, question: options.question });
+    // `sessionId` rides along because the server mints it when the caller sent
+    // none: without it on the wire a client has no way to ask a follow-up, and
+    // every question would open a new conversation (PLAN.md §5/M4.1).
+    emit({ type: 'run_started', runId, question: options.question, sessionId });
 
     try {
       const state = await this.graph.invoke(
-        { question: options.question, sessionId, runId },
-        { configurable: { [AGENT_RUN_CONTEXT]: context } },
+        {
+          question: options.question,
+          askedQuestion: options.question,
+          sessionId,
+          runId,
+          // The session's thread already holds the previous turn's evidence,
+          // sub-questions and hop count. Everything but `turns` is cleared here.
+          ...NEW_TURN_RESET,
+        },
+        {
+          configurable: {
+            [AGENT_RUN_CONTEXT]: context,
+            // The checkpointer's key. One session is one LangGraph thread, which
+            // is what makes turn two able to see turn one at all.
+            thread_id: sessionId,
+          },
+        },
       );
 
       const answer = state.answer ?? {
@@ -204,7 +254,8 @@ export class AgentGraphService {
       });
 
       this.logger.log(
-        `Run ${runId} finished in ${latencyMs}ms — ${state.complexity}, ${state.evidence.length} evidence, ${answer.citations.length} citations`,
+        `Run ${runId} finished in ${latencyMs}ms — ${state.complexity}, ${state.evidence.length} evidence, ` +
+          `${answer.citations.length} citations, turn ${state.turns.length} of session ${sessionId}`,
       );
 
       await this.traces.record({
@@ -274,6 +325,30 @@ export class AgentGraphService {
     } finally {
       clearTimeout(timeout);
       options.signal?.removeEventListener('abort', abortFromCaller);
+      await this.pruneSessions();
+    }
+  }
+
+  /**
+   * Bounds the checkpoint store to the most recent sessions.
+   *
+   * Runs after every run, including a failed one — a run that died mid-graph is
+   * exactly the one that leaves a half-finished thread behind. Failing to prune
+   * must never fail the run that just succeeded, so it is logged and swallowed:
+   * the answer is already on the wire by this point.
+   */
+  private async pruneSessions(): Promise<void> {
+    try {
+      const dropped = await this.checkpoints.pruneToRecentSessions(
+        this.config.checkpointRetentionSessions,
+      );
+      if (dropped > 0) {
+        this.logger.debug(`Pruned ${dropped} session(s) from the checkpoint store`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not prune the checkpoint store: ${error instanceof Error ? error.message : error}`,
+      );
     }
   }
 }

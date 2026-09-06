@@ -39,10 +39,36 @@ export interface ReplayInfo {
   reason: 'requested' | 'quota_exhausted';
 }
 
+/**
+ * A memory ref plus which half of the run it belongs to.
+ *
+ * The direction is only on the wire as the event *type*, and the reducer folds
+ * both types into one list — so without capturing it here the panel could show
+ * refs but not "reads and writes", which is the thing PLAN.md §5/M4 asks it to
+ * show.
+ */
+export type MemoryEntry = MemoryRef & { direction: 'read' | 'written' };
+
+/** What `recall` turned a follow-up into, when it had to. */
+export interface ResolvedQuestion {
+  original: string;
+  resolved: string;
+}
+
 export interface RunView {
   status: RunStatus;
   runId: string | null;
+  /**
+   * The session this run belongs to, as the API reported it.
+   *
+   * Read off `run_started` rather than generated here: the API mints one when
+   * the caller sends none, so the server's id is the only one both sides agree
+   * on. A replay carries none.
+   */
+  sessionId: string | null;
   question: string;
+  /** Set only when the question was rewritten — its absence means it was not. */
+  resolvedQuestion: ResolvedQuestion | null;
   replay: ReplayInfo | null;
   triage: { complexity: Complexity; reasoning: string } | null;
   /** False when triage went straight to retrieval — the absence *is* the signal. */
@@ -51,7 +77,7 @@ export interface RunView {
   toolCalls: ToolCall[];
   evidence: Evidence[];
   reflections: Reflection[];
-  memory: MemoryRef[];
+  memory: MemoryEntry[];
   /** Accumulated `token_delta` text. Today one delta carries the whole answer. */
   streamedText: string;
   answer: AgentAnswer | null;
@@ -79,7 +105,9 @@ export interface RunView {
 export const emptyRun: RunView = {
   status: 'idle',
   runId: null,
+  sessionId: null,
   question: '',
+  resolvedQuestion: null,
   replay: null,
   triage: null,
   planned: false,
@@ -101,8 +129,13 @@ export const emptyRun: RunView = {
   elapsedMs: 0,
 };
 
-export function startRun(question: string): RunView {
-  return { ...emptyRun, status: 'streaming', question, startedAtMs: Date.now() };
+/**
+ * `sessionId` is carried over from the previous run so the session badge does not
+ * blink out between asking a follow-up and `run_started` coming back. The API
+ * still has the last word on it — see the `run_started` case below.
+ */
+export function startRun(question: string, sessionId: string | null = null): RunView {
+  return { ...emptyRun, status: 'streaming', question, sessionId, startedAtMs: Date.now() };
 }
 
 /**
@@ -125,7 +158,13 @@ export function applyEvent(view: RunView, event: EmittedAgentEvent): RunView {
 
   switch (event.type) {
     case 'run_started':
-      return { ...base, status: 'streaming', runId: event.runId, question: event.question };
+      return {
+        ...base,
+        status: 'streaming',
+        runId: event.runId,
+        sessionId: event.sessionId ?? base.sessionId,
+        question: event.question,
+      };
 
     case 'run_replayed':
       return {
@@ -221,8 +260,19 @@ export function applyEvent(view: RunView, event: EmittedAgentEvent): RunView {
       };
 
     case 'memory_read':
+      return { ...base, memory: mergeMemory(base.memory, event.refs, 'read') };
+
     case 'memory_written':
-      return { ...base, memory: [...base.memory, ...event.refs] };
+      return { ...base, memory: mergeMemory(base.memory, event.refs, 'written') };
+
+    case 'followup_resolved':
+      // `question` is left as asked. Every later event describes `resolved`, but
+      // overwriting what the visitor typed would hide the substitution behind the
+      // very thing that makes it worth showing.
+      return {
+        ...base,
+        resolvedQuestion: { original: event.original, resolved: event.resolved },
+      };
 
     case 'token_delta':
       return { ...base, streamedText: base.streamedText + event.text };
@@ -257,6 +307,25 @@ export function applyEvent(view: RunView, event: EmittedAgentEvent): RunView {
 function hopFor(view: RunView, subQuestionId: string): number {
   const known = view.subQuestions.find((sq) => sq.id === subQuestionId);
   return known?.hop ?? view.reflections.length;
+}
+
+/**
+ * Memory refs are keyed by id in the list, and a run reads the same turn it later
+ * writes back — so appending blindly renders duplicate keys for one turn.
+ */
+function mergeMemory(
+  current: MemoryEntry[],
+  update: MemoryRef[],
+  direction: MemoryEntry['direction'],
+): MemoryEntry[] {
+  const merged = [...current];
+  for (const ref of update) {
+    const entry: MemoryEntry = { ...ref, direction };
+    const index = merged.findIndex((existing) => existing.id === ref.id);
+    if (index === -1) merged.push(entry);
+    else merged[index] = entry;
+  }
+  return merged;
 }
 
 function mergeSubQuestions(current: SubQuestion[], update: SubQuestion[]): SubQuestion[] {

@@ -241,6 +241,74 @@ describe('applyEvent edge cases', () => {
     expect(callsById.get('sq2')?.error).toBeNull();
   });
 
+  it('adopts the session the API reports and keeps it through the run', () => {
+    const events = [
+      { type: 'run_started', runId: 'r1', question: 'q', sessionId: 's-1', seq: 0, ts: at(0) },
+      { type: 'triage_done', complexity: 'simple', reasoning: 'one fact', seq: 1, ts: at(10) },
+    ] as EmittedAgentEvent[];
+
+    const view = events.reduce(applyEvent, startRun('q'));
+
+    expect(view.sessionId).toBe('s-1');
+  });
+
+  it('does not let a run without a session id clear the one already held', () => {
+    // Replays carry no session, and so do runs captured before the field existed.
+    // Treating either as "the session ended" would silently break the next
+    // follow-up in a live conversation.
+    const view = applyEvent(startRun('q', 's-1'), {
+      type: 'run_started',
+      runId: 'r2',
+      question: 'q',
+      seq: 0,
+      ts: at(0),
+    } as EmittedAgentEvent);
+
+    expect(view.sessionId).toBe('s-1');
+  });
+
+  it('records a resolved follow-up without overwriting what was asked', () => {
+    const view = applyEvent(startRun('Who approved it?'), {
+      type: 'followup_resolved',
+      original: 'Who approved it?',
+      resolved: 'Who approved the new Helios launch date?',
+      seq: 1,
+      ts: at(10),
+    } as EmittedAgentEvent);
+
+    // Both halves are needed on screen: every other panel describes the resolved
+    // question, and only the original tells the visitor what they typed.
+    expect(view.question).toBe('Who approved it?');
+    expect(view.resolvedQuestion).toEqual({
+      original: 'Who approved it?',
+      resolved: 'Who approved the new Helios launch date?',
+    });
+  });
+
+  it('separates memory reads from memory writes', () => {
+    const events = [
+      { type: 'run_started', runId: 'r1', question: 'q', sessionId: 's-1', seq: 0, ts: at(0) },
+      {
+        type: 'memory_read',
+        refs: [{ id: 'turn-1', kind: 'session_turn', text: 'earlier question — earlier answer' }],
+        seq: 1,
+        ts: at(10),
+      },
+      {
+        type: 'memory_written',
+        refs: [{ id: 'turn-r1', kind: 'session_turn', text: 'this question — this answer' }],
+        seq: 2,
+        ts: at(20),
+      },
+    ] as EmittedAgentEvent[];
+
+    const view = events.reduce(applyEvent, startRun('q'));
+
+    // Direction is only on the wire as the event type. Flattening both into one
+    // list without it leaves the panel unable to show reads *and* writes.
+    expect(view.memory.map((ref) => ref.direction)).toEqual(['read', 'written']);
+  });
+
   it('marks a replay from the leading run_replayed event', () => {
     const view = applyEvent(emptyRun, {
       type: 'run_replayed',

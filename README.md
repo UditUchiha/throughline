@@ -26,14 +26,31 @@ that document is the source of truth on where this project is headed and why, an
   they arrive.
 - **Recorded-run replay.** `?demo=1` replays a captured run over the same event stream with
   zero model calls — the demo still works when a free tier is exhausted.
-- **A corpus that is an answer key.** 169 synthetic documents generated from a hand-authored
-  fact ledger, plus 56 questions derived from fact ids (including 8 that should be refused).
+- **A corpus that is an answer key.** 172 synthetic documents generated from a hand-authored
+  fact ledger, plus 59 questions derived from fact ids (including 8 that should be refused
+  and 3 whose supporting document tries to hijack the agent).
 - **Observability.** Every run is traced twice: locally into sqlite (`runs` + `run_spans`,
   served by `GET /agent/runs/:runId`) and, when a key is configured, to LangSmith. Both show
   the same three-level hierarchy — node → tool → model call — and every run carries its token
   counts and an estimated cost.
+- **Memory, with a forgetting policy.** Within a session, a LangGraph SQLite checkpointer
+  keyed by `sessionId` lets a follow-up be a follow-up: *"who approved it?"* is rewritten into
+  a standalone question before anything searches. Across sessions, durable facts about the
+  person asking go through a funnel — proposed, scored, deduplicated, stored — and are decayed
+  when nothing uses them. **The forgetting is the interesting part;** see below.
 
-Not yet built: memory (M4), MCP connectors (M5), and the eval harness and CI gate (M6).
+- **MCP connectors.** The same agent over data it does not own. An MCP client host connects
+  to configured servers at boot, discovers their tools, and registers them into the existing
+  registry — so a live Obsidian vault is searched by the same graph, through the same uniform
+  tool interface, as the bundled corpus. **Adding it required no change to `src/agent/nodes/`;**
+  see below.
+- **A threat model, and the code that follows from it.** Once the system reads mail, the
+  corpus is attacker-controlled. Retrieved text is fenced and labelled untrusted in every
+  prompt, the tool surface is an operator-maintained allowlist, and no tool argument is ever
+  derived from a document. The corpus carries real injection payloads to prove it.
+
+Not yet built: the eval harness and CI gate (M6), which is where injection resistance stops
+being asserted and starts being scored.
 
 ## Architecture
 
@@ -43,6 +60,11 @@ POST /agent/ask  (SSE)  ->  LangGraph StateGraph  ->  Tool registry  ->  Retriev
                             execute -> reflect ->      chat_search
                             synthesize                 notes_search
                                                        all_sources_search
+                                                       obsidian_search_notes
+                                                            |
+                                                            v
+                                                       MCP client host -> MCP server
+                                                       (stdio, or in-process in DEMO_MODE)
                                     |
                                     v
                           LLM: one OpenAI-compatible client with a configurable baseURL
@@ -74,13 +96,19 @@ src/
 ├── ai/llm/         # one OpenAI-compatible client, tier→model map, failover chain
 ├── rag/            # vector retrieval service + debug search endpoint
 ├── agent/          # the graph: state, nodes, tools, frozen event contract, SSE controller
+│   ├── checkpointing/ # LangGraph SQLite saver — short-term (within-session) memory
 │   ├── replay/     # recorded runs replayed over SSE (the ?demo=1 path)
 │   └── examples/   # corpus/questions.yaml projected for the UI's one-click examples
-└── scheduler/      # background reindex job
+├── integrations/   # MCP client host: connects to servers, discovers tools, adapts results
+│   └── mcp/demo/   # the synthetic MCP server DEMO_MODE serves, over an in-memory transport
+├── memory/         # long-term memory: the extract→score→dedup→store funnel, and its stats
+├── observability/  # LangSmith bridge, span collection, token/cost accounting
+└── scheduler/      # background reindex + memory consolidation jobs
 
 ui/                 # Next.js App Router UI — pure rendering over the SSE event contract
 corpus/             # ledger (hand-authored ground truth) + generated documents + questions
 fixtures/runs/      # captured agent runs, committed; written by `pnpm capture:runs`
+fixtures/mcp/vault/ # the synthetic Obsidian vault DEMO_MODE's connector searches
 evals/              # eval harness — empty until M6
 scripts/            # authoring tools, run outside the Nest context
 database/app.db     # SQLite file (gitignored)
@@ -145,6 +173,7 @@ no sign-in and no credentials involved.
 | `/agent/runs/:runId`      | GET    | A finished run — metadata, its full event stream, and its span tree |
 | `/agent/demo`             | GET    | The recorded runs available for replay                            |
 | `/agent/examples`         | GET    | The authored question set, as one-click examples for the UI       |
+| `/memory/stats`           | GET    | The long-term memory retention funnel, and how many facts survive |
 | `/knowledge/reindex`      | POST   | Re-chunk/re-embed changed corpus files                            |
 | `/knowledge/search?q=&k=` | GET    | Debug: raw RAG retrieval for a query                              |
 
@@ -225,6 +254,187 @@ quietest kind of wrong.
 **Retention.** The trace store keeps `TRACE_RETENTION_RUNS` runs (200 by default) and prunes
 oldest-first on write.
 
+## Memory
+
+Two kinds, and the second one is mostly about what it refuses to keep.
+
+### Within a session — short-term
+
+A LangGraph checkpointer with a SQLite saver, keyed by `sessionId`. `POST /agent/ask` mints a
+session when the caller sends none and reports it on `run_started`; send it back and the next
+question is treated as a follow-up.
+
+Before anything else runs, a `recall` node rewrites the question so it stands on its own:
+
+```
+turn 1  "Why did the Helios launch slip?"
+turn 2  "Who approved it?"              → "Who approved the Helios launch slip?"
+turn 3  "What was her role when she joined?"
+                                        → "What was Priya Raman's role when she joined?"
+```
+
+Turn 3 is the interesting one: *her* was resolved out of turn 2's **answer**, not its
+question. The rewrite is announced as a `followup_resolved` event, so the UI can show what
+was asked next to what was searched for — an agent quietly reinterpreting a question should
+not be invisible.
+
+Sessions are bounded by `CHECKPOINT_RETENTION_SESSIONS` (50). A checkpoint is written per
+graph superstep and carries the whole state, so a three-turn conversation costs ~230KB — this
+store grows several times faster than the trace store does.
+
+### Across sessions — long-term, and the funnel
+
+After a run answers, a `fast`-tier call proposes durable facts about the person asking. Each
+one then has to survive three gates:
+
+| Stage | What it does | Counter |
+| --- | --- | --- |
+| **Extraction** | proposes candidates: preferences, relationships, corrections | `proposed` |
+| **Scoring** | anything under `MEMORY_IMPORTANCE_FLOOR` (0.5) is dropped — before it costs an embedding call | `droppedLowImportance` |
+| **Deduplication** | embed, find the nearest stored fact; within `MEMORY_DEDUP_DISTANCE` it *merges* — bumping a counter on the fact it restates | `mergedDuplicate` |
+| **Storage** | what is left | `stored` |
+
+`GET /memory/stats` returns those four counters and `stored / proposed`. That ratio is the
+honest measure of a memory system: **"it stores roughly N% of what it could" is checkable;
+"it has memory" is not.** The counters are cumulative and survive restarts, so the number
+means something after a few hundred runs rather than a few.
+
+A consolidation job (`MEMORY_CONSOLIDATION_INTERVAL_MS`) then does what write-time dedup
+cannot: it re-compares every surviving fact against every other, merging pairs that have
+drifted together, and forgets anything no question has needed in `MEMORY_TTL_DAYS`. Decay is
+measured from when a fact was last *retrieved into a run*, not when it was last written — a
+fact nobody's questions ever touch is precisely the one worth forgetting.
+
+Before `triage`, the closest `MEMORY_TOP_K` facts are put in front of the run. They reach the
+planner and the synthesiser as *background*, never as passages: only retrieved chunks carry
+citation numbers, so a remembered fact cannot become `[3]` — and if a model tried,
+`resolveCitations` would find the marker out of range and strip it. That guarantee is
+mechanical rather than a matter of the model complying.
+
+Observed end to end: *"I work on the Helios billing migration. Why did the launch slip?"* in
+one session, then — in a **new** session with no shared history — *"Did it ship on time in the
+end?"*, answered about Helios, because that was what memory supplied. Restating the same fact
+in a third session merged rather than duplicated: one row, `access_count` 2.
+
+`MEMORY_DEDUP_DISTANCE` was measured, not guessed — restatements of one fact land at
+0.087–0.276 under `gemini-embedding-001` at 768d while genuinely distinct facts start at
+0.405, and 0.35 takes the empty band between them. **The number is specific to that embedding
+model**; see [`docs/memory-dedup-threshold.md`](docs/memory-dedup-threshold.md) for the
+measurement and how to redo it.
+
+## Connectors
+
+The claim M1 made was that tools are uniform — `{name, description, inputSchema, execute}` —
+and that whether one hits the local index or a live MCP server is invisible to the graph. M5
+is the test of that claim, and it held: **adding MCP connectors changed no file under
+`src/agent/nodes/`.** Two files there did change in the same milestone — `reflect.node.ts` and
+`synthesize.node.ts` each gained the untrusted-content fence described under
+[Security](#security-retrieved-content-is-attacker-controlled) — but that is prompt hardening,
+not connector plumbing, and the connector works identically without it. Everything the
+connector itself needed lives outside `src/agent/nodes/` entirely.
+
+What it took instead:
+
+- `src/integrations/mcp/mcp-host.service.ts` connects to each configured server, asks it what
+  tools it has, and wraps the permitted ones as `AgentTool`s.
+- `agent.module.ts`'s `AGENT_TOOLS` factory became `async`, because discovery is a network
+  call and `ToolRegistry` builds its map in its constructor. That is the single structural
+  change on the agent side.
+- The planner reads `describeForPlanner()` at prompt-build time, so a connector appears in
+  the tool menu with no prompt edit. In the run below the planner chose `obsidian_search_notes`
+  over `notes_search` on its own, from the description alone.
+
+### Demo mode is a real connector, not a stub
+
+`DEMO_MODE=true` (the default) serves a **real MCP server** running in-process over the SDK's
+in-memory transport, reached through the same `Client` a live server would be. Only the
+transport and the data differ. Discovery, query-argument resolution, argument validation and
+result adaptation are all exercised by the deployed demo rather than bypassed by it — a fake
+object implementing `AgentTool` would have been a tenth of the code and would have proved
+nothing.
+
+It is **not** the same thing as `?demo=1`, which replays a recorded run and makes no model
+calls at all. `DEMO_MODE` runs the entire live pipeline and only changes where a connector's
+documents come from. It removes the need for *connector* credentials — a Gmail grant, a Slack
+token, a vault on disk — not the need for an LLM key.
+
+To connect a real one, set `DEMO_MODE=false` and:
+
+```jsonc
+MCP_SERVERS=[{
+  "name": "obsidian",              // tool prefix and evidenceId namespace
+  "command": "npx",
+  "args": ["-y", "obsidian-mcp", "/path/to/vault"],
+  "source": "notes",               // which corpus source its results are filed as
+  "allowTools": ["search_notes"]   // REQUIRED — see below
+}]
+```
+
+Observed live, against the demo connector — *"What did Priya privately conclude about why the
+Helios launch slipped, and what did she decide to do differently?"*: triage `complex` → two
+sub-questions, both assigned to `obsidian_search_notes` → 5 passages → `gapFound: false` →
+a four-citation answer in which every marker resolves to a vault note. 3.9k input tokens.
+
+### Two things that were not free
+
+**Evidence identity.** `evidenceId` was minted from a numeric `chunkId` — a sqlite rowid.
+MCP results have no rowid, and a connector returning `1` for its first result would have
+produced `ev-1`, which is already corpus chunk 1. `mergeEvidence` dedupes by `evidenceId`, so
+one of the two would have been dropped in silence and a citation would then have resolved to
+the wrong passage: a wrong answer, not an error. External sources now mint a namespaced id
+(`ev-obsidian:Projects/Helios.md`), which cannot collide because a corpus id is always an
+integer.
+
+**Relevance is calibrated, not measured.** `synthesize` ranks all evidence on `distance`
+alone, so a connector's passages compete directly with the vector index on a scale they have
+no way to measure. Connector results are mapped into the band the corpus actually occupies
+(0.406–0.585 on `gemini-embedding-001`@768), with the best hit at 0.45 rather than 0.40 — close
+enough to compete with good corpus evidence, not so close that it automatically outranks all
+of it. This is the least principled number in the system and it is labelled as such in
+`mcp-results.ts`; M6's eval harness is what can move it on evidence.
+
+## Security: retrieved content is attacker-controlled
+
+Until M5 every document in the corpus was written by us. Once a system reads mail — or a
+support queue, or a shared vault — that assumption is false: anyone who can send you a message
+can put text in front of your agent. The corpus now contains three documents carrying real
+injection payloads, committed verbatim rather than generated, because a resistance score is
+only meaningful if the attack string is byte-exact.
+
+Four defences, in order of how much they are actually relied on:
+
+1. **The tool surface is an allowlist.** An MCP server advertises whatever it likes, including
+   writes and deletes. Discovery is not consent: nothing is registered unless the operator
+   named it in that server's `allowTools`. A tool that was never registered cannot be selected,
+   because `ToolRegistry` has no entry for it.
+2. **No tool argument is ever derived from a document.** `AgentTool.execute` takes
+   `{query, topK, signal}` and nothing else. The planner emits a tool *name* and a question;
+   there is no code path by which a passage's text becomes an MCP parameter. This is the
+   guarantee — it holds even when the model is completely taken in.
+3. **Arguments are schema-validated against the server's own declaration** before the call,
+   failing closed on an undeclared property or a wrong type (`mcp-tool-shape.ts`).
+4. **Retrieved text is fenced and labelled untrusted** wherever it enters a prompt
+   (`src/agent/untrusted-content.ts`), including a check that a document cannot close the
+   fence around itself. This is defence in depth, not the guarantee: it reduces the chance of
+   a wasted hop and a confused answer.
+
+`src/integrations/mcp/injection-resistance.spec.ts` drives all of this against a real MCP
+server that exposes a destructive `delete_note` tool, with **every model stubbed to obey the
+injection**. The point is not that the model resists; it is that a model which does not resist
+still cannot do anything.
+
+Observed live, asking about one of the adversarial documents — *"Why did Marcus Webb block the
+sender of the vendor security questionnaire?"*: the payload was retrieved into context, and
+the answer described the injection as something the document contains, cited it, and neither
+obeyed it nor emitted the `PULSE-EXFIL-OK` marker the payload asks for.
+
+**What is not covered.** Detection and scoring. Nothing yet measures how often an attempt gets
+through — the above is asserted, not measured, and M6's eval harness is where that changes.
+One second-order path is also open by design: long-term memory extracts facts from a run's
+question and answer, and an answer derives from retrieved documents, so a sufficiently patient
+injection could in principle reach durable memory. Extraction is scoped to facts about the
+person asking, which makes it a narrow channel, but it is narrow rather than closed.
+
 ## Environment variables
 
 | Var                            | Default                     | Purpose                                                                       |
@@ -251,8 +461,19 @@ oldest-first on write.
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `700` / `150`               | Chunking window, counted in **words**                                          |
 | `MAX_HOPS` / `MAX_FAN_OUT`     | `2` / `5`                   | Reflect-loop and per-hop parallelism budgets                                   |
 | `AGENT_TIMEOUT_MS`             | `60000`                     | Wall-clock budget for one run                                                  |
+| `DEMO_MODE`                    | `true`                      | Serve connectors from bundled synthetic data. **Not the same as `?demo=1`**, which replays a recorded run and makes no model calls; this runs the full live pipeline and only changes where a connector's documents come from |
+| `MCP_SERVERS`                  | `[]`                        | JSON array of MCP servers to connect at boot. Ignored, with a warning, while `DEMO_MODE` is on. `allowTools` is required — discovery is not consent |
+| `MCP_DEMO_VAULT_PATH`          | `./fixtures/mcp/vault`      | The synthetic Obsidian vault `DEMO_MODE` serves                                |
+| `MCP_TIMEOUT_MS`               | `15000`                     | Connect, discover and per-call budget for an MCP server. Generous because an `npx`-launched server may download itself first |
 | `RETRIEVAL_DISTANCE_THRESHOLD` | `0.9`                       | **Not currently enforced.** See [`docs/retrieval-threshold-study.md`](docs/retrieval-threshold-study.md) for how it was derived and why it isn't portable across embedding models |
 | `TRACE_RETENTION_RUNS`         | `200`                       | Finished runs kept in the local trace store; oldest pruned on write. No unlimited option — see [`env.schema.ts`](src/config/env.schema.ts) |
+| `CHECKPOINT_RETENTION_SESSIONS` | `50`                       | Sessions kept by the short-term-memory checkpointer; oldest pruned after every run          |
+| `MEMORY_IMPORTANCE_FLOOR`      | `0.5`                       | Candidate facts below this are dropped before they cost an embedding call                   |
+| `MEMORY_DEDUP_DISTANCE`        | `0.35`                      | L2 distance at or below which a candidate merges into the fact it restates. **Model-specific** — see [`docs/memory-dedup-threshold.md`](docs/memory-dedup-threshold.md) |
+| `MEMORY_TOP_K`                 | `3`                         | Remembered facts injected into a run's context                                              |
+| `MEMORY_RECALL_DISTANCE`       | `0.49`                      | L2 ceiling for recalling a fact into a run. Without it a small store returned everything to every question, and decay could never fire. **Model-specific**, from the same measurement as `MEMORY_DEDUP_DISTANCE` but on thinner evidence |
+| `MEMORY_TTL_DAYS`              | `30`                        | Forget a fact no run has retrieved in this long                                             |
+| `MEMORY_CONSOLIDATION_INTERVAL_MS` | `21600000`              | How often near-duplicates are merged and stale facts forgotten (6h)                         |
 | `LANGSMITH_TRACING`            | `false`                     | Send traces to LangSmith. Enabling it without `LANGSMITH_API_KEY` fails at boot, because LangSmith drops traces silently when it cannot authenticate |
 | `LANGSMITH_API_KEY`            | —                           | LangSmith key. The free personal tier is enough                                |
 | `LANGSMITH_PROJECT`            | `throughline`               | Project traces are filed under                                                 |
@@ -276,7 +497,7 @@ questions from fact ids. Facts are authored **first** — never write a question
 generated document. That ordering is what keeps the eval suite from grading the model
 against its own output.
 
-The setting is "Lumen Labs", a fictional company: 16 people, 6 projects, 169 documents
+The setting is "Lumen Labs", a fictional company: 16 people, 6 projects, 172 documents
 across 9 storylines, roughly 100 of them pure noise. No real data is involved.
 
 ## Migration path to Postgres + pgvector

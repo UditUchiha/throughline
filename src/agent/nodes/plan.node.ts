@@ -5,6 +5,7 @@ import type { LlmService } from '../../ai/llm/llm.types';
 import { AppConfigService } from '../../config/app-config.service';
 import type { SubQuestion } from '../agent.types';
 import { createEmitter, getRunContext, recordUsage } from '../agent-run-context';
+import { renderMemoryBlock } from '../memory-context';
 import type { AgentState, AgentStateUpdate } from '../state';
 import { parseJsonObject } from '../structured-output';
 import { ToolRegistry } from '../tools/tool-registry';
@@ -77,7 +78,7 @@ Rules:
 - Do not invent target names. Use only the names listed above.
 Reply with JSON only.`;
 
-    const result = await this.llm.chat([{ role: 'user', content: state.question }], {
+    const result = await this.llm.chat([{ role: 'user', content: this.renderUser(state) }], {
       system,
       tier: 'fast',
       jsonSchema: RESPONSE_SCHEMA,
@@ -91,6 +92,29 @@ Reply with JSON only.`;
 
     emit({ type: 'plan_created', subQuestions });
     return { subQuestions, events };
+  }
+
+  /**
+   * The question, plus anything long-term memory recalled about the person
+   * asking (PLAN.md §5/M4.2 — "inject the top few into planner context").
+   *
+   * Framed as background rather than as part of the question, and explicitly
+   * fallible: a remembered fact should widen where the planner looks — someone
+   * who works on Helios asking "did it ship?" means Helios — but a stale or
+   * wrong one must not become a sub-question of its own.
+   */
+  private renderUser(state: AgentState): string {
+    const memory = renderMemoryBlock(state.memoryUsed);
+    if (!memory) return state.question;
+
+    return [
+      `Question: ${state.question}`,
+      '',
+      'Background remembered about the person asking, from earlier conversations. Use it only',
+      'to disambiguate what they are asking about. It may be out of date, it is not part of the',
+      'question, and it is never something to go and search for on its own:',
+      memory,
+    ].join('\n');
   }
 
   /**

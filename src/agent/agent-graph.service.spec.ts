@@ -1,3 +1,5 @@
+import Database from 'better-sqlite3';
+import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import type { ChatOptions, ChatResult, LlmService } from '../ai/llm/llm.types';
 import type { AppConfigService } from '../config/app-config.service';
 import type { RetrievedChunk } from '../rag/retrieved-chunk.type';
@@ -5,6 +7,8 @@ import { AgentGraphService } from './agent-graph.service';
 import type { AgentEventType } from './events';
 import { ExecuteNode } from './nodes/execute.node';
 import { PlanNode } from './nodes/plan.node';
+import { RecallNode } from './nodes/recall.node';
+import { RememberNode } from './nodes/remember.node';
 import { ReflectNode } from './nodes/reflect.node';
 import { SynthesizeNode } from './nodes/synthesize.node';
 import { TriageNode } from './nodes/triage.node';
@@ -12,6 +16,9 @@ import type { AgentTool } from './tools/agent-tool';
 import { ToolRegistry } from './tools/tool-registry';
 import { LangSmithTracing } from '../observability/langsmith-tracing.service';
 import { TraceCollector } from '../observability/trace-collector.service';
+import type { CheckpointRepository } from '../repositories/ports/checkpoint.repository';
+import type { LongTermMemoryService } from '../memory/long-term-memory.service';
+import type { MemoryFact } from '../memory/memory.types';
 import type { TraceRepository } from '../repositories/ports/trace.repository';
 import type { PersistedRun, RunSpan } from '../common/types/trace.types';
 
@@ -24,6 +31,8 @@ interface Script {
   plan: object;
   reflect: object[];
   synthesis: object;
+  /** Only consulted from turn two onward — `recall` is a no-op on a fresh session. */
+  recall?: object;
 }
 
 /**
@@ -38,7 +47,9 @@ function scriptedLlm(script: Script): LlmService {
       const system = options?.system ?? '';
       let payload: object;
 
-      if (system.startsWith('You triage questions')) {
+      if (system.startsWith('You rewrite follow-up questions')) {
+        payload = script.recall ?? { standalone: '', isFollowUp: false };
+      } else if (system.startsWith('You triage questions')) {
         payload = script.triage;
       } else if (system.startsWith('You plan retrieval')) {
         payload = script.plan;
@@ -100,10 +111,33 @@ class FakeTraceRepository implements TraceRepository {
   }
 }
 
+/**
+ * Long-term memory stubbed out: M4.2's funnel has its own spec, and a graph test
+ * that also exercised extraction would be testing two things and reporting one.
+ * `recall` returning nothing is the state a fresh install is in.
+ */
+const noMemory = () =>
+  ({
+    recall: () => Promise.resolve([]),
+    remember: () => Promise.resolve({ stored: [], merged: [] }),
+  }) as unknown as LongTermMemoryService;
+
+/** Records the bound rather than pruning: retention has its own repository spec. */
+class FakeCheckpointRepository implements CheckpointRepository {
+  readonly limits: number[] = [];
+
+  pruneToRecentSessions(limit: number): Promise<number> {
+    this.limits.push(limit);
+    return Promise.resolve(0);
+  }
+}
+
 function buildGraph(
   script: Script,
   overrides: Partial<AppConfigService> = {},
   traceRepo: TraceRepository = new FakeTraceRepository(),
+  checkpointRepo: CheckpointRepository = new FakeCheckpointRepository(),
+  memory: LongTermMemoryService = noMemory(),
 ): AgentGraphService {
   const llm = scriptedLlm(script);
   const registry = new ToolRegistry([
@@ -116,17 +150,25 @@ function buildGraph(
     maxHops: 2,
     maxFanOut: 5,
     agentTimeoutMs: 10_000,
+    checkpointRetentionSessions: 7,
     ...overrides,
   } as unknown as AppConfigService;
 
   return new AgentGraphService(
     config,
+    new RecallNode(llm, memory),
     new TriageNode(llm, registry),
     new PlanNode(llm, registry, config),
     new ExecuteNode(registry, noTracing()),
     new ReflectNode(llm, registry, config),
     new SynthesizeNode(llm),
+    new RememberNode(memory),
     new TraceCollector(traceRepo),
+    // The real saver over an in-memory database, one per graph. A fake would make
+    // the multi-turn tests below assert against a stub of the thing under test —
+    // it is LangGraph's own resume semantics that carry short-term memory.
+    new SqliteSaver(new Database(':memory:')),
+    checkpointRepo,
   );
 }
 
@@ -400,15 +442,24 @@ describe('AgentGraphService', () => {
         chat: () => Promise.reject(new Error('quota exhausted')),
       };
       const registry = new ToolRegistry([tool('mail_search', [1])]);
-      const config = { maxHops: 2, maxFanOut: 5, agentTimeoutMs: 10_000 } as AppConfigService;
+      const config = {
+        maxHops: 2,
+        maxFanOut: 5,
+        agentTimeoutMs: 10_000,
+        checkpointRetentionSessions: 7,
+      } as AppConfigService;
       const graph = new AgentGraphService(
         config,
+        new RecallNode(exploding, noMemory()),
         new TriageNode(exploding, registry),
         new PlanNode(exploding, registry, config),
         new ExecuteNode(registry, noTracing()),
         new ReflectNode(exploding, registry, config),
         new SynthesizeNode(exploding),
+        new RememberNode(noMemory()),
         new TraceCollector(repo),
+        new SqliteSaver(new Database(':memory:')),
+        new FakeCheckpointRepository(),
       );
 
       await expect(graph.run({ question: 'anything' })).rejects.toThrow('quota exhausted');
@@ -471,6 +522,241 @@ describe('AgentGraphService', () => {
       expect(result.events.map((event) => event.type)).toContain<AgentEventType>('tool_started');
       expect(result.answer.abstained).toBe(false);
       expect(result.events.at(-1)?.type).toBe('run_finished');
+    });
+  });
+
+  describe('short-term memory (M4.1)', () => {
+    const script: Script = {
+      triage: { complexity: 'simple', reasoning: 'one fact' },
+      plan: { subQuestions: [] },
+      reflect: [NO_GAP],
+      synthesis: { answer: 'Priya Raman approved it [1].', abstained: false },
+      recall: { standalone: 'Who approved the new Helios launch date?', isFollowUp: true },
+    };
+
+    it('tells the caller which session the run belongs to', async () => {
+      const graph = buildGraph(script);
+
+      const result = await graph.run({ question: 'Why did Helios slip?' });
+      const started = result.events.find((event) => event.type === 'run_started');
+
+      // The server mints the id when the caller sends none. Without it on the
+      // wire the caller cannot ask a follow-up, and every question opens a new
+      // conversation no matter how correct the checkpointer is.
+      expect(started?.type === 'run_started' && started.sessionId).toBe(result.sessionId);
+    });
+
+    it('carries the previous turn into the next question on the same session', async () => {
+      const graph = buildGraph(script);
+      const sessionId = 'session-under-test';
+
+      const first = await graph.run({ question: 'Why did Helios slip?', sessionId });
+      expect(first.state.turns).toHaveLength(1);
+      expect(first.state.turns[0]).toMatchObject({
+        question: 'Why did Helios slip?',
+        answer: 'Priya Raman approved it [1].',
+        abstained: false,
+      });
+
+      const second = await graph.run({ question: 'Who approved it?', sessionId });
+
+      // The whole point of M4.1: turn two resolved "it" out of turn one.
+      const resolved = second.events.find((event) => event.type === 'followup_resolved');
+      expect(resolved).toMatchObject({
+        original: 'Who approved it?',
+        resolved: 'Who approved the new Helios launch date?',
+      });
+      expect(second.state.turns).toHaveLength(2);
+      expect(second.state.turns[1]).toMatchObject({
+        question: 'Who approved it?',
+        standalone: 'Who approved the new Helios launch date?',
+      });
+    });
+
+    it('starts each turn from a clean slate but a remembered conversation', async () => {
+      const graph = buildGraph(script);
+      const sessionId = 'session-reset';
+
+      const first = await graph.run({ question: 'Why did Helios slip?', sessionId });
+      const second = await graph.run({ question: 'Who approved it?', sessionId });
+
+      // The regression this exists for. The checkpointer resumes the *same*
+      // thread, and every reducer here merges or appends — so without
+      // NEW_TURN_RESET turn two inherits turn one's spent hop budget and its
+      // event log, and reflects on a question it never asked.
+      expect(second.state.hops).toBe(first.state.hops);
+      // Per-run, not per-session: a second turn holding the first turn's events
+      // would replay the previous answer to the UI before producing its own.
+      expect(second.state.events.filter((event) => event.type === 'triage_done')).toHaveLength(1);
+
+      // Evidence is deliberately not asserted here. It leaks the same way, but the
+      // stub tools ignore their query and `mintEvidenceId` is a pure function of
+      // `chunkId`, so both turns retrieve identical ids and the dedupe reducer
+      // hides the leak. `hops` is the channel where it shows.
+      expect(second.state.evidence.every((piece) => piece.retrievedBy !== undefined)).toBe(true);
+    });
+
+    it('keeps two sessions from seeing each other', async () => {
+      const graph = buildGraph(script);
+
+      await graph.run({ question: 'Why did Helios slip?', sessionId: 'session-a' });
+      const other = await graph.run({ question: 'Who approved it?', sessionId: 'session-b' });
+
+      // A fresh session has no history, so `recall` never calls a model — and
+      // "it" stays unresolved rather than being resolved out of someone else's
+      // conversation.
+      expect(other.events.some((event) => event.type === 'followup_resolved')).toBe(false);
+      expect(other.state.turns).toHaveLength(1);
+    });
+
+    it('records the turn even when the run abstained', async () => {
+      const graph = buildGraph({
+        ...script,
+        synthesis: { answer: 'I could not find this in the available sources.', abstained: true },
+      });
+
+      const result = await graph.run({ question: 'What is the CEO shoe size?' });
+
+      // A session that only remembered what it answered well would let the next
+      // turn resolve "why not?" against a conversation missing the turn that
+      // said no.
+      expect(result.state.turns).toHaveLength(1);
+      expect(result.state.turns[0].abstained).toBe(true);
+      expect(result.events.some((event) => event.type === 'memory_written')).toBe(true);
+    });
+
+    it('bounds the checkpoint store after every run, including a failed one', async () => {
+      const checkpoints = new FakeCheckpointRepository();
+      const graph = buildGraph(script, {}, new FakeTraceRepository(), checkpoints);
+
+      await graph.run({ question: 'Why did Helios slip?' });
+
+      // 7 is this harness's own bound, deliberately not the schema default — the
+      // assertion is that the configured value reaches the repository, not what
+      // the default happens to be.
+      expect(checkpoints.limits).toEqual([7]);
+    });
+  });
+
+  describe('long-term memory (M4.2)', () => {
+    const script: Script = {
+      triage: { complexity: 'complex', reasoning: 'needs two sources' },
+      plan: {
+        subQuestions: [{ id: 'sq1', text: 'What slipped?', tool: 'mail_search', dependsOn: [] }],
+      },
+      reflect: [NO_GAP],
+      synthesis: { answer: 'Helios slipped [1].', abstained: false },
+    };
+
+    const remembered: MemoryFact = {
+      id: 4,
+      text: 'The user works on the Helios project.',
+      kind: 'relationship',
+      importance: 0.8,
+      accessCount: 1,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+      lastUsedAt: null,
+      sourceRunId: 'run-0',
+      sourceSessionId: 'session-0',
+    };
+
+    function recallingMemory(facts: MemoryFact[]): LongTermMemoryService {
+      return {
+        recall: () => Promise.resolve(facts),
+        remember: () => Promise.resolve({ stored: [], merged: [] }),
+      } as unknown as LongTermMemoryService;
+    }
+
+    it('puts recalled facts in front of the planner and the synthesiser', async () => {
+      const prompts: string[] = [];
+      const llm: LlmService = {
+        chat: (messages, options) => {
+          prompts.push(`${options?.system ?? ''} ${messages.map((m) => m.content).join()}`);
+          return scriptedLlm(script).chat(messages, options);
+        },
+      };
+      const registry = new ToolRegistry([tool('mail_search', [1, 2])]);
+      const config = {
+        maxHops: 2,
+        maxFanOut: 5,
+        agentTimeoutMs: 10_000,
+        checkpointRetentionSessions: 7,
+      } as unknown as AppConfigService;
+      const memory = recallingMemory([remembered]);
+
+      const graph = new AgentGraphService(
+        config,
+        new RecallNode(llm, memory),
+        new TriageNode(llm, registry),
+        new PlanNode(llm, registry, config),
+        new ExecuteNode(registry, noTracing()),
+        new ReflectNode(llm, registry, config),
+        new SynthesizeNode(llm),
+        new RememberNode(memory),
+        new TraceCollector(new FakeTraceRepository()),
+        new SqliteSaver(new Database(':memory:')),
+        new FakeCheckpointRepository(),
+      );
+
+      await graph.run({ question: 'Did it ship?' });
+
+      const planner = prompts.find((prompt) => prompt.startsWith('You plan retrieval'));
+      const synth = prompts.find((prompt) => prompt.startsWith('You answer questions using only'));
+
+      // §5/M4.2's "inject the top few into planner context" — and into synthesis,
+      // which is where a remembered preference visibly changes an answer.
+      expect(planner).toContain('The user works on the Helios project.');
+      expect(synth).toContain('The user works on the Helios project.');
+    });
+
+    it('emits recalled facts as a memory read, distinguishable from session turns', async () => {
+      const graph = buildGraph(
+        script,
+        {},
+        new FakeTraceRepository(),
+        new FakeCheckpointRepository(),
+        recallingMemory([remembered]),
+      );
+
+      const result = await graph.run({ question: 'Did it ship?' });
+      const read = result.events.find((event) => event.type === 'memory_read');
+
+      expect(read?.type === 'memory_read' && read.refs).toEqual([
+        { id: 'fact-4', kind: 'relationship', text: 'The user works on the Helios project.' },
+      ]);
+    });
+
+    it('extracts only after the answer has streamed', async () => {
+      const repo = new FakeTraceRepository();
+      const graph = buildGraph(script, {}, repo, new FakeCheckpointRepository());
+
+      const result = await graph.run({ question: 'Did it ship?' });
+      const spans = (await repo.get(result.runId))?.spans ?? [];
+
+      const synthesize = spans.find((span) => span.kind === 'node' && span.name === 'synthesize');
+      const remember = spans.find((span) => span.kind === 'node' && span.name === 'remember');
+
+      // Extraction is a model call that has nothing to do with the visitor's
+      // question. Ahead of synthesis it would delay the answer itself; here only
+      // `run_finished` waits, and the UI is already rendering the text.
+      expect(remember).toBeDefined();
+      expect(Date.parse(remember!.startedAt)).toBeGreaterThanOrEqual(
+        Date.parse(synthesize!.endedAt),
+      );
+
+      const types = result.events.map((event) => event.type);
+      expect(types.indexOf('token_delta')).toBeLessThan(types.indexOf('run_finished'));
+    });
+
+    it('runs a question through unchanged when memory holds nothing', async () => {
+      const graph = buildGraph(script);
+      const result = await graph.run({ question: 'Did it ship?' });
+
+      // A fresh install must not emit an empty `memory_read`: the event means
+      // "memory contributed this", not "memory was consulted".
+      expect(result.events.some((event) => event.type === 'memory_read')).toBe(false);
+      expect(result.answer.text).toContain('Helios slipped');
     });
   });
 });

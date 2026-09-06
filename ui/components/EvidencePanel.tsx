@@ -10,6 +10,11 @@ export function evidenceDomId(evidenceId: string): string {
   return `evidence-${evidenceId}`;
 }
 
+/**
+ * The order the known sources are shown in. Not an allowlist — see
+ * {@link groupBySource}, which appends anything else rather than filtering it
+ * out.
+ */
 const SOURCE_ORDER: (CorpusSource | 'unknown')[] = ['mail', 'chat', 'notes', 'unknown'];
 
 /**
@@ -219,7 +224,14 @@ function groupBySource(evidence: Evidence[]) {
     else bySource.set(key, [item]);
   }
 
-  return SOURCE_ORDER.filter((source) => bySource.has(source)).map((source) => ({
+  // Known sources first, in their fixed order, then anything else in the order it
+  // arrived. Filtering by SOURCE_ORDER alone would *drop* evidence from a source
+  // this build has not heard of — the same failure the closed `CorpusSource`
+  // union used to cause in `sourceStyle`, except silent: the citation would
+  // still resolve and the passage behind it would simply not be on screen.
+  const extra = [...bySource.keys()].filter((source) => !SOURCE_ORDER.includes(source));
+
+  return [...SOURCE_ORDER.filter((source) => bySource.has(source)), ...extra].map((source) => ({
     source,
     // Best evidence first inside a group; distance is lower-is-better.
     evidence: [...bySource.get(source)!].sort((a, b) => a.distance - b.distance),

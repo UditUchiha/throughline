@@ -51,6 +51,7 @@ function graphConfig(): LangGraphRunnableConfig {
 function state(subQuestions: SubQuestion[]): AgentState {
   return {
     question: 'q',
+    askedQuestion: 'q',
     sessionId: 'session-1',
     runId: 'run-1',
     complexity: 'complex',
@@ -60,6 +61,7 @@ function state(subQuestions: SubQuestion[]): AgentState {
     hops: 0,
     answer: null,
     events: [],
+    turns: [],
   };
 }
 

@@ -95,6 +95,67 @@ export function runMigrations(db: Database.Database, embeddingDimensions: number
       embedding FLOAT[${embeddingDimensions}]
     );
   `);
+
+  // --- Long-term memory (PLAN.md §5/M4.2) ---
+  //
+  // Facts get their own table and their own vec index rather than living in
+  // `chunks` under a distinct `source`, which is what §5/M4.2 sketches. Three
+  // reasons, in order of how badly they bite:
+  //
+  // 1. `all_sources_search` passes no `sourceFilter` (by design — it is the
+  //    fallback tool), so a fact in `vec_chunks` would come back as corpus
+  //    evidence, be minted an `evidenceId`, and get cited as though it were a
+  //    document. That breaks the property the whole project rests on: a citation
+  //    resolves to a passage that was actually retrieved from the corpus.
+  // 2. `chunks.article_id` is `NOT NULL REFERENCES articles(id)`, so facts would
+  //    need a sentinel article — and `IndexingService.removeDeletedArticles`
+  //    deletes articles whose `index_state` path is gone from disk. It happens to
+  //    spare a row with no `index_state` entry, which is an accident to depend on.
+  // 3. Facts need columns chunks do not have, and UPDATE/DELETE semantics chunks
+  //    never see: importance, an access counter, and timestamps for decay.
+  //
+  // They still share the embedding provider and dimensions, so the `index_meta`
+  // identity guard covers them too — a model swap fails at boot rather than
+  // silently making remembered facts unsearchable.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_facts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      -- 0..1, assigned at extraction. Below MEMORY_IMPORTANCE_FLOOR a candidate
+      -- never reaches this table at all, so every row here cleared the bar.
+      importance REAL NOT NULL,
+      -- Incremented when the same fact is stated again, instead of inserting a
+      -- duplicate. This is the counter M4's acceptance criteria ask about.
+      access_count INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      -- When the fact was last *retrieved into a run*, which is a different
+      -- question from when it was last written. Decay is measured from this:
+      -- a fact nobody's questions ever touch is the one worth forgetting.
+      last_used_at TEXT,
+      source_run_id TEXT NOT NULL,
+      source_session_id TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_facts_used ON memory_facts(last_used_at);
+
+    -- Cumulative funnel counters (PLAN.md §5/M4.2, "instrument the funnel").
+    -- A table rather than in-memory counters because the claim they support —
+    -- "the system stores roughly N% of what it could" — is only meaningful over
+    -- many runs, and would reset on every deploy otherwise.
+    CREATE TABLE IF NOT EXISTS memory_funnel (
+      stage TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory_facts USING vec0(
+      fact_id INTEGER PRIMARY KEY,
+      embedding FLOAT[${embeddingDimensions}]
+    );
+  `);
 }
 
 /**

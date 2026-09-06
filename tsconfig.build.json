@@ -1,4 +1,15 @@
 {
   "extends": "./tsconfig.json",
+  // `include` is what pins the emit layout, not just what gets compiled. Without
+  // it, TypeScript infers `rootDir` from the common parent of every input — and
+  // `scripts/` is an input, so that parent is the repo root and `nest build`
+  // emitted `dist/src/main.js` while `start:prod` looked for `dist/main.js`.
+  // Nothing caught it because the dev server runs from source and §9's Docker
+  // build has not been exercised yet.
+  //
+  // `scripts/` is deliberately excluded: those run through ts-node against the
+  // base tsconfig (`pnpm corpus:generate`, `pnpm capture:runs`) and are never
+  // part of the server bundle.
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "test", "dist", "ui", "**/*spec.ts"]
 }

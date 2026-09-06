@@ -1,3 +1,4 @@
+import { externalChunkId } from '../rag/retrieved-chunk.type';
 import type { Evidence } from './agent.types';
 import {
   mintEvidenceId,
@@ -90,6 +91,25 @@ describe('citations', () => {
     it('is derived from the chunk, so the same chunk always gets the same id', () => {
       expect(mintEvidenceId(42)).toBe(mintEvidenceId(42));
       expect(mintEvidenceId(42)).not.toBe(mintEvidenceId(43));
+    });
+
+    // M5 opened this id space to sources that have no chunk id. The two spaces
+    // have to stay disjoint: `mergeEvidence` in state.ts dedupes by evidenceId,
+    // so a connector minting `1` would erase corpus chunk 1 without a word and a
+    // citation would then resolve to the wrong passage — a wrong answer, not an
+    // error. Corpus ids are always integers; external ids always carry a
+    // namespace, which is what keeps them apart.
+    it('keeps a namespaced external id distinct from a corpus chunk id', () => {
+      expect(mintEvidenceId(externalChunkId('obsidian', '1'))).not.toBe(mintEvidenceId(1));
+      expect(mintEvidenceId(externalChunkId('obsidian', 'Projects/Helios.md'))).toBe(
+        'ev-obsidian:Projects/Helios.md',
+      );
+    });
+
+    it('separates two connectors that use the same reference', () => {
+      expect(mintEvidenceId(externalChunkId('obsidian', 'inbox'))).not.toBe(
+        mintEvidenceId(externalChunkId('gmail', 'inbox')),
+      );
     });
   });
 });

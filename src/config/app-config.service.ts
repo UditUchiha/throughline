@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EnvConfig } from './env.schema';
+import { EnvConfig, McpServerConfig } from './env.schema';
 
 export type LlmProvider = 'gemini' | 'groq' | 'openrouter' | 'ollama';
 export type EmbeddingProviderType = 'gemini' | 'ollama';
@@ -153,6 +153,61 @@ export class AppConfigService {
 
   get agentTimeoutMs(): number {
     return this.configService.get('AGENT_TIMEOUT_MS', { infer: true });
+  }
+
+  // --- Connectors (PLAN.md §5/M5) ---
+
+  /**
+   * Serve connectors from bundled synthetic data rather than anything real.
+   *
+   * Not the same thing as `?demo=1`, which replays a recorded run and makes no
+   * model calls: this runs the whole live pipeline and only changes where a
+   * connector's documents come from. See DEMO_MODE in env.schema.ts.
+   */
+  get demoMode(): boolean {
+    return this.configService.get('DEMO_MODE', { infer: true });
+  }
+
+  get mcpServers(): McpServerConfig[] {
+    return this.configService.get('MCP_SERVERS', { infer: true });
+  }
+
+  get mcpDemoVaultPath(): string {
+    return this.configService.get('MCP_DEMO_VAULT_PATH', { infer: true });
+  }
+
+  get mcpTimeoutMs(): number {
+    return this.configService.get('MCP_TIMEOUT_MS', { infer: true });
+  }
+
+  // --- Memory ---
+
+  get checkpointRetentionSessions(): number {
+    return this.configService.get('CHECKPOINT_RETENTION_SESSIONS', { infer: true });
+  }
+
+  get memoryImportanceFloor(): number {
+    return this.configService.get('MEMORY_IMPORTANCE_FLOOR', { infer: true });
+  }
+
+  get memoryDedupDistance(): number {
+    return this.configService.get('MEMORY_DEDUP_DISTANCE', { infer: true });
+  }
+
+  get memoryTopK(): number {
+    return this.configService.get('MEMORY_TOP_K', { infer: true });
+  }
+
+  get memoryRecallDistance(): number {
+    return this.configService.get('MEMORY_RECALL_DISTANCE', { infer: true });
+  }
+
+  get memoryTtlDays(): number {
+    return this.configService.get('MEMORY_TTL_DAYS', { infer: true });
+  }
+
+  get memoryConsolidationIntervalMs(): number {
+    return this.configService.get('MEMORY_CONSOLIDATION_INTERVAL_MS', { infer: true });
   }
 
   // --- Observability ---

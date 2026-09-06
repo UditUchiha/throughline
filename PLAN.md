@@ -11,7 +11,7 @@ on the repository. Everything needed to start is in this document.
 
 ## Current status — read this first
 
-*Authored 2026-08-04. Status last updated 2026-09-05.*
+*Authored 2026-08-04. Status last updated 2026-09-06.*
 
 **Repo:** https://github.com/UditUchiha/throughline (public, one clean commit, no client data
 in history). Local dev on Windows, pnpm, Node 22.
@@ -30,7 +30,10 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **Recorded-run replay** | ✅ Done | Also pulled forward from §9. `POST /agent/ask?demo=1` replays a fixture; `GET /agent/demo` lists them; `pnpm capture:runs` records them. Lets M2 be built without spending quota, and is the degraded-demo path. |
 | **M2 — UI** | ✅ Done | `ui/` — Next.js App Router + Tailwind, pure rendering over the frozen event contract. Question box + one-click examples, plan panel with the hop grouping, tool timeline, evidence grouped by source, citation chips that scroll to and highlight their evidence, memory placeholder, run stats. `?demo=1` replays with zero model calls. Two supporting API additions — see the deviations below. |
 | **M3 — observability** | ✅ Done | Local trace store done and tested (`runs` + `run_spans`, `TraceRepository` port, `TraceCollector`; replaces the in-memory `AgentRunStore`, and captures failed runs too). Cost/token accounting done, prices verified against provider pages. LangSmith verified live — planner → tool → LLM nesting confirmed on a real second-hop run, shared publicly and linked from the README. |
-| **M4–M6** | ⬜ Not started | **M4 (memory) is the next task.** Unchanged from the plan below. |
+| **M4.1 — short-term memory** | ✅ Done | LangGraph checkpointer (`@langchain/langgraph-checkpoint-sqlite`) keyed by `sessionId` over the existing connection; a `recall` node ahead of `triage` resolves follow-ups against the checkpointed turns. `sessionId` appended to `run_started` and plumbed through the UI, which had never sent one. `memory_read` / `memory_written` now carry real refs. Retention bounded by `CHECKPOINT_RETENTION_SESSIONS`. |
+| **M4.2 — long-term memory** | ✅ Done | `LongTermMemoryService` — extract → score → dedup → store, with funnel counters at `GET /memory/stats`; consolidation job merges near-duplicates and forgets facts unused past `MEMORY_TTL_DAYS`. Facts get their own table + vec index rather than living in `chunks` (see the deviation below). Verified live across sessions. |
+| **M5 — MCP connectors** | ✅ Done | `McpHostService` connects to configured servers at boot, discovers their tools and registers them into the existing registry. **No file under `src/agent/nodes/` changed** — the M1 tool shape held; the only structural change was making the `AGENT_TOOLS` factory async. `DEMO_MODE` (default on) serves a real in-process MCP server over the SDK's in-memory transport, so the credential-free demo exercises the whole path rather than bypassing it. Security section built: allowlisted tool surface, schema-validated arguments, retrieved content fenced as untrusted, and 3 adversarial corpus documents carrying real payloads. Verified live both ways — the planner chose the connector unprompted and cited it, and an injected document was described rather than obeyed. |
+| **M6 — evals + CI** | ⬜ **← next task** | Unchanged from the plan below. Note that M5 left it two new jobs: scoring injection resistance (the `adversarial` question category, 3 questions), and deciding whether the eval harness runs with `DEMO_MODE` on — the connector adds a source the answer key does not cover. A post-M5 review also surfaced that long-term memory has no per-visitor scope, which is a §9 decision rather than a patch — see HANDOFF's known gaps. |
 
 > [!NOTE]
 > **The embedding/retrieval path is now proven end-to-end** (2026-09-02, resolving the
@@ -100,7 +103,7 @@ in history). Local dev on Windows, pnpm, Node 22.
   is in the script's header comment: an embedding threshold is a fuzzy topical-relevance
   proxy needing an arbitrary cutoff, whereas "did the exact date survive" is the actual
   failure mode and is fully deterministic with no embedding calls.
-- The corpus is 169 documents (82 mail / 47 chat channel-days / 40 notes) rather than §6's
+- The corpus is 172 documents (83 mail / 48 chat channel-days / 41 notes) rather than §6's
   literal counts. Chat documents are channel-*days* containing 3–7 messages each, so total
   message volume lands in the intended range.
 - **M2 added two things to the API that the plan describes but does not enumerate.**
@@ -633,8 +636,9 @@ tool_started       {subQuestionId, tool, input}
 tool_finished      {subQuestionId, tool, evidenceIds[], latencyMs}
 evidence_added     {evidence[]}
 reflect_done       {gapFound, followUps[]}
-memory_read        {refs[]}          // wired in M4, emit empty until then
-memory_written     {refs[]}          // wired in M4
+memory_read        {refs[]}          // short-term turns as of M4.1; LTM facts in M4.2
+memory_written     {refs[]}          // the turn just committed to the session
+followup_resolved  {original, resolved}  // added M4.1; only when the text changed
 token_delta        {text}            // streamed synthesis
 run_finished       {answer, citations[], usage, costUsd, latencyMs}
 run_failed         {error}
@@ -685,7 +689,7 @@ stream and renders panels as events arrive:
    full source document.
 5. **Answer** — streamed tokens, with citation markers rendered as clickable chips that
    scroll to and highlight the corresponding evidence.
-6. **Memory panel** — empty placeholder until M4. Ship the panel now, wire it later.
+6. **Memory panel** — empty placeholder until M4. Ship the panel now, wire it later. *(Wired in M4.1: it shows the session turns a run read and the turn it wrote, labelled by direction.)*
 7. **Run stats** — total latency, tokens, cost, hop count, provider/model used.
 
 Add a `?demo=1` mode that replays a recorded run from `GET /agent/runs/:id` with no LLM
@@ -695,13 +699,13 @@ rate limits are exhausted, and it makes the README GIF trivial to record.
 #### Acceptance criteria — M2
 
 - [x] Local UI renders a full multi-hop run live, all panels populating in order.
-      *Verified in two halves, because free-tier providers would not hold a full live run
-      open on the day: a live run streamed `triage_done` → `plan_created` → two parallel
-      `tool_started` → `tool_finished` → `evidence_added` into the panels in order before
-      the provider stalled the reflect call to the 60s budget; and complete runs — simple,
-      multi-hop, second-hop and abstention — render end to end via `?demo=1`, which travels
-      the identical SSE path with genuinely captured events. Worth re-confirming in one
-      shot when quota allows.*
+      *Verified end to end in one sitting on 2026-09-05, live (no `?demo=1`), sampling the
+      DOM as it streamed: triage `classifying` → `complex` at 2.1s, plan and two parallel
+      tool calls at 3.6s, evidence 5 → 10 by 4.3s, finished at 11.7s with 2 citations.
+      Stats populated with 4.4k/324 tokens, `$0.0056`, and a `served by` of
+      `gemini-3.5-flash-lite → gemini-3.5-flash`. Citation chip scrolled its card from
+      1439px off-screen into view, expanded and flashed; collapse worked. No console
+      errors.*
 - [x] Citation chips scroll to and highlight the correct evidence.
 - [x] `?demo=1` replays a recorded run with zero API calls.
 - [x] Mobile viewport is usable (recruiters open links on phones). *Checked at 375px: no
@@ -776,13 +780,77 @@ per-model price table in config (Ollama = 0). Surface in `run_finished` and the 
 keep. The forgetting policy is the interesting engineering; unbounded storage is not memory,
 it is a log.
 
-#### M4.1 — Short-term (within session)
+#### M4.1 — Short-term (within session) — ✅ **done 2026-09-05**
 
 Use LangGraph's checkpointer with a SQLite saver, keyed by `sessionId`. Gives conversational
 continuity and resumable runs largely for free. Add follow-up-question handling: resolve
 pronouns against checkpointed history before `triage`.
 
-#### M4.2 — Long-term (across sessions)
+**What "largely for free" cost, as built.** Three things the sentence above hides, all
+verified rather than reasoned about:
+
+1. **"Keyed by `sessionId`" means turn two resumes the same thread**, and every reducer in
+   `state.ts` merges or appends. Unguarded, turn two arrives at `execute` holding turn one's
+   evidence, its finished sub-questions and its spent hop budget. An empty array cannot
+   express the reset — "append nothing" is what it means to an appending reducer — so every
+   per-turn channel treats `null` as "reset to default" and `NEW_TURN_RESET` is the one place
+   that sends it. The channel that deliberately survives is `turns`, which *is* the memory.
+2. **A failed run does not poison the next turn.** After a node throws, the thread keeps
+   pending tasks (`getState().next` is non-empty), but a fresh invoke with input restarts
+   from `START` rather than resuming them. Checked directly before the design was settled.
+3. **Nothing was sending a `sessionId`.** The API had accepted one since M1 — DTO,
+   controller, state, persistence — but `run_started` did not report the id the server
+   minted, and `ui/app/page.tsx` never passed one, so every question opened a new
+   conversation. `sessionId` is now an optional field on `run_started` (append-only,
+   mirrored in `ui/lib/agent-events.ts`) and the UI adopts the server's id for the rest of
+   the tab's session.
+
+Also added, because the milestone goal is "an explicit policy for what *not* to keep":
+`CHECKPOINT_RETENTION_SESSIONS` (default 50) prunes the oldest sessions after every run,
+through a `CheckpointRepository` port. Measured on a real three-turn session: 22 checkpoint
+rows, 93 pending-write rows, 231KB — ~77KB per turn, several times what the same
+conversation costs the trace store, because a checkpoint is written per *superstep* and
+carries the whole state.
+
+The checkpointer itself is **not** behind a repository port (§0.3). It is LangGraph
+infrastructure, the same category as the compiled graph, and `BaseCheckpointSaver` is
+already the interface; wrapping it would be the §0.4 violation. It shares the existing
+`SQLITE_CONNECTION` rather than opening its own handle. Forgetting is ours, and that has a
+port.
+
+#### M4.2 — Long-term (across sessions) — ✅ **done 2026-09-05**
+
+Built as specified, with **one storage deviation** (below) and one placement refinement.
+
+**Deviation: facts do not live in the `sqlite-vec` chunk index.** §5/M4.2 says "facts live in
+the same `sqlite-vec` index under a distinct source". They live in `memory_facts` +
+`vec_memory_facts` instead. Three reasons, in order of severity:
+
+1. **`all_sources_search` passes no `sourceFilter`** — by design, it is the fallback tool. A
+   fact in `vec_chunks` would come back as corpus evidence, be minted an `evidenceId`, and be
+   cited as though it were a document. That breaks §4's load-bearing property: a citation
+   resolves to a passage actually retrieved from the corpus. A shared index would make every
+   present and future retrieval tool responsible for excluding memory.
+2. **`chunks.article_id` is `NOT NULL REFERENCES articles(id)`**, so facts would need a
+   sentinel article — and `IndexingService.removeDeletedArticles` deletes articles whose
+   `index_state` path is gone from disk. It happens to spare a row that has no `index_state`
+   entry, which is an accident to build memory on.
+3. Facts need columns chunks do not have (importance, access count, decay timestamps) and
+   UPDATE/DELETE semantics chunks never see.
+
+They still use the same embedding provider and dimensions, so the `index_meta` identity guard
+covers them: a model swap fails at boot rather than silently making memory unsearchable.
+
+**Refinement: retrieval happens in `recall`, before `triage`, not before `plan`.** `triage`
+routes a simple question straight past the planner, so retrieval sitting inside `plan` would
+mean a remembered preference never reaches a simple question — which is most of them. It is
+still "before `plan`"; it is just also before the branch that can skip it. Recalled facts
+reach both the planner and the synthesiser as background, never as citable passages.
+
+**Extraction runs after `synthesize`, in a `remember` node.** It needs the answer, and by that
+point `token_delta` has already streamed — so the visitor is reading while it runs, and only
+`run_finished` waits. The session turn is still committed by `synthesize`, one node earlier,
+so short-term memory survives extraction failing.
 
 `src/memory/long-term-memory.service.ts`:
 
@@ -807,13 +875,38 @@ what it could" is a far better claim than "it has memory."
 
 #### Acceptance criteria — M4
 
-- [ ] Ask a question, state a preference, ask a follow-up in a new session — the preference
-      is retrieved and visibly influences the answer.
-- [ ] Stating the same fact twice produces one stored fact with an incremented counter.
-- [ ] Memory panel shows reads and writes for a run.
-- [ ] Retention funnel counters are exposed and non-trivial (not storing ~everything).
-- [ ] Unit tests: dedup merges above threshold and inserts below it; low-importance
-      candidates are dropped.
+- [x] **Ask a question, state a preference, ask a follow-up in a new session — the preference
+      is retrieved and visibly influences the answer.** Observed 2026-09-05: *"I work on the
+      Helios billing migration. Why did the launch slip?"* stored the relationship; a **new**
+      session then asked *"Did it ship on time in the end?"* — a question with no antecedent
+      at all — and it was answered about Helios, off a `memory_read` carrying that one fact.
+      The within-session half is observed too: turn 2 "Who approved it?" resolved to "Who
+      approved the Helios launch slip?"; turn 3 "What was her role when she joined?" resolved
+      *her* to Priya Raman out of turn 2's **answer** — two links of a reference chain — and
+      abstained honestly.
+- [x] **Stating the same fact twice produces one stored fact with an incremented counter.**
+      Observed: a third session said *"I'm on the Helios billing migration team"*; the funnel
+      reported `proposed 2 / merged 1 / stored 1`, and the table held one row with
+      `access_count = 2`.
+- [x] **Memory panel shows reads and writes for a run.** Direction is only on the wire as
+      the event *type*, so the UI reducer stamps it onto each ref; the panel labels them
+      `← read` / `→ written` and its heading reads "1 read · 1 written". Watched live in the
+      browser on a two-turn conversation.
+- [x] **Retention funnel counters are exposed** at `GET /memory/stats` — `proposed`,
+      `droppedLowImportance`, `mergedDuplicate`, `stored`, plus `stored / proposed` and the
+      surviving fact count. Cumulative in a table, so they survive a restart.
+      ⚠️ **"Non-trivial" is not yet demonstrated.** Live traffic so far is 3 runs / 2
+      candidates, and a retention rate off n=2 is not a claim worth making. The README
+      describes the mechanism and the measured numbers with their n rather than quoting a
+      headline percentage; revisit when M6's eval harness runs the 56-question set and
+      produces a sample worth reporting.
+- [x] **Unit tests: dedup merges above threshold and inserts below it; low-importance
+      candidates are dropped.** All three in `long-term-memory.service.spec.ts`, plus the
+      mid-flight-delete race, importance clamping, and unparseable extraction.
+      *M4.1 added 17 API tests and 4 UI tests; M4.2 adds 39 more — 16 in
+      `long-term-memory.service.spec.ts`, 9 in `sqlite-memory.repository.spec.ts`, 7 in
+      `remember.node.spec.ts`, 3 more in `recall.node.spec.ts`, 4 in
+      `agent-graph.service.spec.ts`.*
 
 ---
 
@@ -849,12 +942,34 @@ differentiator disproportionate to its cost.
 
 #### Acceptance criteria — M5
 
-- [ ] At least one live MCP connector answers a real question end to end (local demo, GIF).
-- [ ] `DEMO_MODE=true` runs the full pipeline with zero external credentials.
-- [ ] Adding the MCP connector required **no changes** to `src/agent/nodes/` — verify by
-      reviewing the diff.
-- [ ] Injected adversarial corpus documents do not cause unauthorized tool calls; the
-      behaviour is covered by a test.
+- [x] **At least one MCP connector answers a real question end to end.** Verified live
+      2026-09-06: *"What did Priya privately conclude about why the Helios launch slipped,
+      and what did she decide to do differently?"* → triage `complex` → two sub-questions,
+      both assigned to `obsidian_search_notes` by the planner's own choice → 5 passages over
+      the real MCP protocol → four citations, all resolving to vault notes. 3.9k input tokens.
+      ⚠️ **Partial:** the connector was the in-process demo server, which is a real MCP server
+      reached through the real client but not a third-party one. Pointing `MCP_SERVERS` at a
+      published Obsidian server and recording the GIF is the remaining piece.
+- [x] **`DEMO_MODE=true` runs the full pipeline with zero connector credentials.** Default on.
+      It serves a real `McpServer` over the SDK's in-memory transport, so discovery,
+      query-argument resolution, argument validation and result adaptation are all exercised
+      rather than stubbed. Note the wording: it removes *connector* credentials, not the LLM
+      key — nothing answers a question without one.
+- [x] **No changes to `src/agent/nodes/` for the connector.** `git diff -- src/agent/nodes/`
+      shows only the security work (the untrusted fence in `reflect` and `synthesize`), which
+      is a different criterion on this list. The connector itself lands entirely in
+      `src/integrations/`, `src/config/`, the `AGENT_TOOLS` factory, and two shared files —
+      `retrieved-chunk.type.ts` and `citations.ts` — that own evidence identity.
+- [x] **Injected adversarial documents cause no unauthorized tool call, covered by a test.**
+      `src/integrations/mcp/injection-resistance.spec.ts` drives a real MCP server exposing a
+      destructive `delete_note` tool with **every model stubbed to obey the injection**, and
+      asserts the tool is never registered, never selected, and never called. Three adversarial
+      documents are in the corpus with byte-exact payloads, and a live run described one rather
+      than obeying it.
+
+> **What M5 did not do.** Gmail and Slack connectors (the plan orders them Obsidian → Gmail →
+> Slack; only the first is built), and injection *detection* — resistance is asserted here and
+> scored in M6.
 
 ---
 
@@ -878,6 +993,25 @@ Metrics (per §7):
 - Injection resistance *(deterministic — did a forbidden tool call occur)*
 - Plan quality — sub-question count and source coverage vs. reference *(mixed)*
 - Cost, latency, hop count *(deterministic)*
+- **Memory funnel yield** — of 56 runs, how many propose a candidate at all, and what
+  fraction of candidates survive scoring and dedup *(deterministic — read `GET /memory/stats`
+  before and after a suite run)*
+
+**Two memory questions this suite is the first chance to answer, both deliberately left open
+in M4.2 rather than guessed at:**
+
+1. **Is the retention rate non-trivial?** M4's acceptance criteria ask for counters that show
+   the system is *not* storing roughly everything. Live traffic at the end of M4 was 2
+   candidates, which is not a sample. A 56-question run is. Until then the README describes
+   the mechanism and the raw numbers with their n, and quotes no percentage.
+2. **Should extraction be gated?** `remember` adds a `fast` call to every answered run — ~4
+   model calls per run became ~5–6 — against a free tier of ~20 per window, which §9 and the
+   dead-ends list both call the dominant failure mode. The obvious gate is to skip extraction
+   unless the question contains first-person markers (`I` / `my` / `we`), since corpus
+   questions contain none and self-disclosure is the only thing extraction can act on.
+   **Deliberately not implemented**: it is a heuristic, and this suite measures the thing that
+   decides it — if ~54 of 56 runs propose nothing, the gate is obviously right; if 20 propose
+   something, it is not. Same discipline as `MEMORY_DEDUP_DISTANCE`: measure, then choose.
 
 **The headline number: agent vs. single-shot RAG baseline on the multi-hop question set.**
 Implement the baseline as a flag on the same harness so the comparison is apples to apples.
@@ -918,6 +1052,8 @@ worth documenting.
 - [ ] A deliberately regressing PR fails CI; the failure output names the metric and delta.
 - [ ] Every guardrail has a unit test for both pass and fail paths.
 - [ ] The LLM judge's agreement with hand labels is measured and reported.
+- [ ] The two memory questions above are answered from the run, not estimated: a retention
+      rate over a real sample, and a decision on whether to gate extraction.
 
 ---
 
@@ -1223,9 +1359,55 @@ Decided items are marked ✅. Remaining items resolve before or during M0, with 
    turns out to matter more than the convenience.
 5. **Anthropic support.** Owner has a key but prefers not to spend it. *Recommendation: leave
    the seam, do not implement. It is 30 minutes whenever it is wanted.*
-6. **Turso vs. Qdrant for M4 persistence.** *Recommendation: defer to M4. Turso if the
-   SQLite-compatible path holds; Qdrant if a recognizable vector-DB name is worth the extra
-   integration work.*
+6. ✅ **M4 persistence: neither Turso nor Qdrant — the existing `better-sqlite3` file.**
+   Locked 2026-09-05 with M4.1. The LangGraph checkpointer takes the live
+   `SQLITE_CONNECTION` rather than opening its own handle, so short-term memory added a
+   dependency and two tables but no new datastore, no second writer on the WAL, and no
+   network hop. M4.2's durable facts follow the same path — §5/M4.2 already puts them in the
+   existing `sqlite-vec` index under a distinct source.
+
+   Reopen this only if §9's deployment makes the single-file store the binding constraint.
+   A recognizable vector-DB name on the README is not worth the integration work while the
+   whole corpus is 169 documents.
+7. ✅ **Checkpoint retention is bounded per *session*, pruned after every run.** Locked
+   2026-09-05 with M4.1. `CHECKPOINT_RETENTION_SESSIONS` (default 50), enforced through
+   `CheckpointRepository` from `AgentGraphService`'s `finally` block, so a failed run — the
+   one that leaves a half-finished thread — prunes too.
+
+   **This went slightly beyond M4.1 as specified**, which asks only for the checkpointer and
+   follow-up handling; forgetting appears in M4's *goal* statement rather than M4.1's spec.
+   Three things decided it:
+   - A checkpoint is written per **superstep** and carries the whole state, evidence text
+     included. Measured on a real three-turn session: 22 checkpoint rows, 93 pending-write
+     rows, 231KB — ~77KB per turn, several times what the same conversation costs the trace
+     store. So this store grows faster than the one that already has a bound.
+   - §9 bakes `database/app.db` into the deployed image, so whatever accumulates in
+     development ships with it. That is the identical argument already written down for
+     `TRACE_RETENTION_RUNS`, and declining to apply it here would have been the
+     inconsistency.
+   - Degradation is graceful and silent by design: a pruned session's next question finds
+     `turns` empty, `recall` no-ops, and it behaves exactly like a first turn. No error path
+     to get wrong.
+
+   *The unit is the session, not the row* — a limit counting rows would keep one long
+   conversation and call it fifty. The known wart: the UI's turn counter is client-side, so a
+   session pruned mid-conversation would show "turn 5" against an agent with no memory. It
+   takes 50 other sessions arriving between two questions in one tab, so it is a curiosity,
+   not a defect to fix.
+
+   To drop this: delete the `pruneSessions()` call in `AgentGraphService.run`'s `finally`,
+   the port, the adapter and the env var. Nothing else depends on it.
+8. ✅ **A session lives as long as the browser tab, not the page load.** Locked 2026-09-05
+   with M4.1. `sessionId` is persisted in `sessionStorage`, so a refresh continues the
+   conversation and closing the tab ends it.
+
+   The alternative — React state only, which is where M4.1 first landed — meant a reload
+   silently started a new conversation. That was an accident of implementation rather than a
+   decision, and it is the wrong default: a visitor who refreshes has not changed the subject.
+   `sessionStorage` rather than `localStorage` is the point: per-tab and cleared on close is
+   exactly the lifetime "short-term memory (within session)" describes, and two tabs asking
+   unrelated questions must not share a conversation. `?demo=1` replays are excluded — a
+   recording has no session.
 
 ---
 

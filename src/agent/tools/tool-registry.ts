@@ -16,7 +16,15 @@ export class ToolRegistry {
     this.byName = new Map(tools.map((tool) => [tool.name, tool]));
 
     if (this.byName.size !== tools.length) {
-      throw new Error('Duplicate agent tool name registered');
+      // Named, because since M5 the list is partly discovered at runtime: an MCP
+      // server called `mail` exposing `search` produces `mail_search`, which is
+      // already a corpus tool. Knowing *which* name collided is the difference
+      // between a one-line config fix and a hunt.
+      const seen = new Set<string>();
+      const duplicates = tools.map((tool) => tool.name).filter((name) => !seen.add(name));
+      throw new Error(
+        `Duplicate agent tool name registered: ${[...new Set(duplicates)].join(', ')}`,
+      );
     }
   }
 

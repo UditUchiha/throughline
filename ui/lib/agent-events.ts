@@ -13,7 +13,21 @@
  */
 
 export type Complexity = 'simple' | 'complex';
-export type CorpusSource = 'mail' | 'chat' | 'notes';
+/**
+ * The three sources this build knows how to style.
+ *
+ * **Open, not a closed union**, and for the reason `QuestionCategory` in
+ * `lib/api.ts` is: the API owns this vocabulary and can extend it. M5 added
+ * connectors, and while today each one files its results under one of these
+ * three, a connector that introduced a fourth would previously have reached
+ * `SOURCE_STYLES[source]` as `undefined` and thrown on `.className` inside the
+ * evidence panel — a hard crash in the UI from a value the API is entitled to
+ * send. Unknown sources now render with their raw name instead.
+ */
+export const KNOWN_SOURCES = ['mail', 'chat', 'notes'] as const;
+
+export type KnownSource = (typeof KNOWN_SOURCES)[number];
+export type CorpusSource = KnownSource | (string & {});
 export type SubQuestionStatus = 'pending' | 'running' | 'done' | 'failed';
 
 export interface SubQuestion {
@@ -45,6 +59,7 @@ export interface Citation {
   evidenceId: string;
 }
 
+/** One thing memory handed the run, or one thing the run committed to it. */
 export interface MemoryRef {
   id: string;
   kind: string;
@@ -63,7 +78,18 @@ export interface TokenUsage {
 }
 
 export type AgentEvent =
-  | { type: 'run_started'; runId: string; question: string }
+  | {
+      type: 'run_started';
+      runId: string;
+      question: string;
+      /**
+       * The session this run belongs to. Send it back on the next question and
+       * the API treats that question as a follow-up; drop it and every question
+       * opens a new conversation. Absent on runs captured before the field
+       * existed, and on a replay — a recording is not a conversation.
+       */
+      sessionId?: string;
+    }
   | {
       type: 'run_replayed';
       slug: string;
@@ -92,6 +118,12 @@ export type AgentEvent =
   | { type: 'reflect_done'; gapFound: boolean; followUps: SubQuestion[] }
   | { type: 'memory_read'; refs: MemoryRef[] }
   | { type: 'memory_written'; refs: MemoryRef[] }
+  /**
+   * The question was a follow-up and was rewritten to stand on its own before
+   * anything else ran. Emitted only when the text actually changed, so every
+   * other event in the run describes `resolved` rather than `original`.
+   */
+  | { type: 'followup_resolved'; original: string; resolved: string }
   | { type: 'token_delta'; text: string }
   | {
       type: 'run_finished';

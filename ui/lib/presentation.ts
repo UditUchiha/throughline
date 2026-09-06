@@ -1,5 +1,10 @@
-import type { CorpusSource } from './agent-events';
+import { KNOWN_SOURCES, type CorpusSource, type KnownSource } from './agent-events';
 import type { KnownCategory, QuestionCategory } from './api';
+
+export interface SourceStyle {
+  label: string;
+  className: string;
+}
 
 /**
  * Source identity is the spine of the visual language.
@@ -9,19 +14,22 @@ import type { KnownCategory, QuestionCategory } from './api';
  * card, badge. A visitor learns three colours once and can then read the fan-out
  * without reading any labels.
  */
-export const SOURCE_STYLES: Record<CorpusSource, { label: string; className: string }> = {
+export const SOURCE_STYLES: Record<KnownSource, SourceStyle> = {
   mail: { label: 'mail', className: 'source-mail' },
   chat: { label: 'chat', className: 'source-chat' },
   notes: { label: 'notes', className: 'source-notes' },
 };
 
 /** Neutral styling for the cross-source tool and for evidence with no source. */
-export const NEUTRAL_SOURCE = { label: 'all sources', className: 'source-all' };
+export const NEUTRAL_SOURCE: SourceStyle = { label: 'all sources', className: 'source-all' };
 
 /**
  * Which source a tool searches. Derived from the tool name rather than looked up,
- * because the registry is not exposed over HTTP and M5 will add tools this UI has
- * never heard of — those fall through to neutral instead of breaking.
+ * because the registry is not exposed over HTTP and M5's connectors added tools
+ * this UI has never heard of — `obsidian_search_notes` among them. Those fall
+ * through to neutral here rather than breaking. The evidence they return still
+ * carries a real `source`, so the cards are coloured even when the tool bar is
+ * not.
  */
 export function sourceForTool(tool: string): CorpusSource | null {
   if (tool.startsWith('mail')) return 'mail';
@@ -30,8 +38,21 @@ export function sourceForTool(tool: string): CorpusSource | null {
   return null;
 }
 
-export function sourceStyle(source: CorpusSource | null) {
-  return source ? SOURCE_STYLES[source] : NEUTRAL_SOURCE;
+/**
+ * Never returns undefined.
+ *
+ * `SOURCE_STYLES[source]` used to be indexed by a closed union, so a source the
+ * API added — an M5 connector filing under something other than mail/chat/notes
+ * — produced `undefined` and then threw on `.className` in the evidence panel.
+ * A source this build has no colour for is styled neutrally and labelled with
+ * its own name, which is the same treatment `categoryLabel` gives an unknown
+ * question category.
+ */
+export function sourceStyle(source: CorpusSource | null): SourceStyle {
+  if (!source) return NEUTRAL_SOURCE;
+
+  const known = KNOWN_SOURCES.find((candidate) => candidate === source);
+  return known ? SOURCE_STYLES[known] : { label: source, className: NEUTRAL_SOURCE.className };
 }
 
 /**
@@ -47,6 +68,7 @@ const CATEGORY_LABELS: Record<KnownCategory, string> = {
   temporal: 'a fact that changed',
   distractor: 'has a decoy answer',
   unanswerable: 'should refuse to answer',
+  adversarial: 'evidence tries to hijack it',
 };
 
 /**
