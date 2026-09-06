@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -120,22 +121,38 @@ export class PrecomputedEmbeddingProvider implements EmbeddingProvider {
   }
 }
 
-function parseVectorFile(raw: string, path: string): PrecomputedVectorFile {
-  const parsed: unknown = JSON.parse(raw);
+/**
+ * The artifact's shape, declared once instead of asserted six times.
+ *
+ * The hand-rolled version checked the four scalars and then cast, which left the
+ * `vectors` map unchecked beyond "is an object" — so an entry whose value was a
+ * number or a nested object got past the guard and failed later inside
+ * `decodeVector`, as `Buffer.from(3, 'base64')` throwing about argument types. A
+ * corrupt artifact should say it is corrupt, at the point it is read.
+ *
+ * `dimensions` is bounded because it sizes the `vec_chunks` table at migration
+ * time: a zero or negative value is not a smaller index, it is a table sqlite
+ * refuses to create, several layers away from here.
+ */
+const vectorFileSchema = z.object({
+  modelId: z.string().min(1),
+  dimensions: z.number().int().positive(),
+  generatedAt: z.string().min(1),
+  vectors: z.record(z.string(), z.string()),
+});
 
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    typeof (parsed as PrecomputedVectorFile).modelId !== 'string' ||
-    typeof (parsed as PrecomputedVectorFile).dimensions !== 'number' ||
-    typeof (parsed as PrecomputedVectorFile).generatedAt !== 'string' ||
-    typeof (parsed as PrecomputedVectorFile).vectors !== 'object' ||
-    (parsed as PrecomputedVectorFile).vectors === null
-  ) {
+function parseVectorFile(raw: string, path: string): PrecomputedVectorFile {
+  const parsed = vectorFileSchema.safeParse(JSON.parse(raw) as unknown);
+
+  if (!parsed.success) {
+    const detail = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ');
     throw new Error(
-      `"${path}" is not a vector artifact — regenerate it with \`pnpm corpus:vectors\``,
+      `"${path}" is not a valid vector artifact (${detail}) — regenerate it with ` +
+        `\`pnpm corpus:vectors\``,
     );
   }
 
-  return parsed as PrecomputedVectorFile;
+  return parsed.data;
 }

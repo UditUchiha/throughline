@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { INestApplicationContext } from '@nestjs/common';
+import { z } from 'zod';
 import { LLM_SERVICE } from '../../src/ai/llm/llm.constants';
 import type { LlmService } from '../../src/ai/llm/llm.types';
 import {
@@ -78,10 +79,15 @@ Rules:
 - Be direct. Two or three sentences is usually enough.
 Reply with JSON only.`;
 
-interface SynthesisResponse {
-  answer: string;
-  abstained: boolean;
-}
+/**
+ * Mirrors `synthesize.node.ts` — the control has to fail the same way the agent
+ * does, or the comparison measures the harness rather than the approach. Both
+ * treat a non-string `answer` as no answer and abstain.
+ */
+const synthesisResponseSchema = z.object({
+  answer: z.string().optional(),
+  abstained: z.boolean().optional(),
+});
 
 export async function runBaselineQuestion(
   app: INestApplicationContext,
@@ -141,7 +147,7 @@ export async function runBaselineQuestion(
       { system: SYSTEM_PROMPT, tier: 'default', jsonSchema: RESPONSE_SCHEMA },
     );
 
-    const parsed = parseJsonObject<SynthesisResponse>(result.text);
+    const parsed = parseJsonObject(result.text, synthesisResponseSchema);
     // `||`, not `??`. An empty string is a missing answer, not a present one, and
     // `??` disagreed with the `abstained` line below about which — so a model that
     // returned `{"answer": ""}` produced a run that was flagged as an abstention

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Database from 'better-sqlite3';
 import { SQLITE_CONNECTION } from '../../database/database.constants';
+import type { CorpusSource } from '../../common/types/knowledge.types';
 import { EmbeddingRepository, EmbeddingSearchHit } from '../ports/embedding.repository';
 
 interface VecRow {
@@ -34,7 +35,7 @@ export class SqliteEmbeddingRepository implements EmbeddingRepository {
   async search(
     queryEmbedding: number[],
     topK: number,
-    sourceFilter?: string[],
+    sourceFilter?: CorpusSource[],
   ): Promise<EmbeddingSearchHit[]> {
     if (!sourceFilter || sourceFilter.length === 0) {
       // Unfiltered: fast path, direct vec0 query.

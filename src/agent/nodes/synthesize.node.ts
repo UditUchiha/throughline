@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
+import { z } from 'zod';
 import { LLM_SERVICE } from '../../ai/llm/llm.constants';
 import type { LlmService } from '../../ai/llm/llm.types';
 import type { AgentAnswer, Evidence, MemoryRef, SessionTurn } from '../agent.types';
@@ -30,10 +31,17 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-interface SynthesisResponse {
-  answer: string;
-  abstained: boolean;
-}
+/**
+ * `answer` must be a string because `resolveCitations` runs a regex over it. The
+ * old guard was `if (!parsed?.answer)`, which a number passes — and the run then
+ * failed inside citation resolution rather than abstaining. With the type
+ * enforced, a non-string answer takes the same path as a missing one: the node
+ * abstains, which is a defined and scored outcome rather than an error.
+ */
+const synthesisResponseSchema = z.object({
+  answer: z.string().optional(),
+  abstained: z.boolean().optional(),
+});
 
 const ABSTENTION_TEXT = 'I could not find this in the available sources.';
 
@@ -95,7 +103,7 @@ Reply with JSON only.`;
 
     recordUsage(config, result);
 
-    const parsed = parseJsonObject<SynthesisResponse>(result.text);
+    const parsed = parseJsonObject(result.text, synthesisResponseSchema);
     // An unparseable synthesis is not recoverable the way an unparseable plan is
     // — there is no safe default answer, so abstain rather than guess.
     if (!parsed?.answer) {

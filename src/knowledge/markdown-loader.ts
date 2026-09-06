@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import { readdirSync, readFileSync } from 'fs';
 import { basename, extname, join, relative } from 'path';
 import matter from 'gray-matter';
-import type { CorpusSource } from '../common/types/knowledge.types';
+import { isCorpusSource, type CorpusSource } from '../common/types/knowledge.types';
 
 export interface LoadedArticle {
   path: string;
@@ -15,8 +15,6 @@ export interface LoadedArticle {
   docId: string | null;
 }
 
-const VALID_SOURCES = new Set<string>(['mail', 'chat', 'notes']);
-
 function extractTitle(content: string, fallback: string): string {
   const match = content.match(/^#\s+(.+)$/m);
   return match ? match[1].trim() : fallback;
@@ -28,7 +26,7 @@ function extractTitle(content: string, fallback: string): string {
  */
 function inferSourceFromPath(relPath: string): CorpusSource | null {
   const topDir = relPath.split(/[\\/]/)[0];
-  return VALID_SOURCES.has(topDir) ? (topDir as CorpusSource) : null;
+  return isCorpusSource(topDir) ? topDir : null;
 }
 
 /** Recursively collect every `.md` file under `dir`, returning absolute paths. */
@@ -59,10 +57,10 @@ export function loadMarkdownArticles(knowledgePath: string): LoadedArticle[] {
     const checksum = createHash('sha256').update(raw).digest('hex');
     const { data: fm, content } = matter(raw);
 
-    const source =
-      typeof fm.source === 'string' && VALID_SOURCES.has(fm.source)
-        ? (fm.source as CorpusSource)
-        : inferSourceFromPath(relPath);
+    // Frontmatter wins when it names a source this build knows; anything else —
+    // absent, misspelled, or a source added by a newer generator — falls back to
+    // the directory rather than being trusted.
+    const source = isCorpusSource(fm.source) ? fm.source : inferSourceFromPath(relPath);
     const docId = typeof fm.docId === 'string' ? fm.docId : null;
     const title =
       typeof fm.title === 'string'

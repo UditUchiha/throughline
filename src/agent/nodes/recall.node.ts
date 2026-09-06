@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
+import { z } from 'zod';
 import { LLM_SERVICE } from '../../ai/llm/llm.constants';
 import type { LlmService } from '../../ai/llm/llm.types';
 import { LongTermMemoryService } from '../../memory/long-term-memory.service';
@@ -29,10 +30,17 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-interface RecallResponse {
-  standalone: string;
-  isFollowUp: boolean;
-}
+/**
+ * `standalone` was the sharpest of the unchecked casts: the node calls
+ * `parsed.standalone?.trim()`, and optional chaining guards `null` but not a
+ * number — `(3).trim` is `undefined` and calling it throws. Typing it here means
+ * a non-string rewrite is discarded and the run answers the question as asked,
+ * which is the fallback the node already documents.
+ */
+const recallResponseSchema = z.object({
+  standalone: z.string().optional(),
+  isFollowUp: z.boolean().optional(),
+});
 
 const SYSTEM_PROMPT = `You rewrite follow-up questions so a search system can answer them without the conversation.
 
@@ -154,7 +162,7 @@ export class RecallNode {
 
     recordUsage(config, result);
 
-    const parsed = parseJsonObject<RecallResponse>(result.text);
+    const parsed = parseJsonObject(result.text, recallResponseSchema);
     if (!parsed) {
       // Unlike a failed plan there is a correct fallback here: the question as
       // asked. A run answering the literal question is a worse answer, not a

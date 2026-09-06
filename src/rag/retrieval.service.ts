@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
+import type { CorpusSource } from '../common/types/knowledge.types';
 import { EMBEDDING_SERVICE, type EmbeddingProvider } from '../embeddings/embedding.types';
 import {
   ARTICLE_REPOSITORY,
@@ -33,7 +34,7 @@ export class RetrievalService {
   async search(
     query: string,
     topK?: number,
-    sourceFilter?: string[],
+    sourceFilter?: CorpusSource[],
     signal?: AbortSignal,
   ): Promise<RetrievedChunk[]> {
     const start = Date.now();

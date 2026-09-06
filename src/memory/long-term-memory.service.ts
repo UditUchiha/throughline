@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { z } from 'zod';
 import { AppConfigService } from '../config/app-config.service';
 import { LLM_SERVICE } from '../ai/llm/llm.constants';
 import type { ChatResult, LlmService } from '../ai/llm/llm.types';
@@ -49,9 +50,29 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-interface ExtractionResponse {
-  facts: { text?: string; kind?: string; importance?: number }[];
-}
+/**
+ * The extractor's proposals, checked before the funnel sees them.
+ *
+ * `facts` is iterated with `for...of`, so anything that is not iterable — a
+ * number, a bare object — threw `is not iterable` and took down the post-run
+ * extraction. `.catch([])` turns that into "nothing worth remembering", which is
+ * the outcome on the overwhelming majority of runs anyway and is already counted
+ * honestly in the funnel.
+ *
+ * The per-fact fields stay loose because `scoreAndStore` already validates them:
+ * it drops a fact with no text and scores `importance` against a floor.
+ */
+const extractionResponseSchema = z.object({
+  facts: z
+    .array(
+      z.object({
+        text: z.string().optional(),
+        kind: z.string().optional(),
+        importance: z.number().optional(),
+      }),
+    )
+    .catch([]),
+});
 
 const EXTRACTION_PROMPT = `You decide what is worth remembering about a person across future conversations.
 
@@ -284,7 +305,7 @@ export class LongTermMemoryService {
   }
 
   private toCandidates(result: ChatResult): MemoryCandidate[] {
-    const parsed = parseJsonObject<ExtractionResponse>(result.text);
+    const parsed = parseJsonObject(result.text, extractionResponseSchema);
     if (!parsed) {
       // "Nothing worth remembering" is the correct default here, and it is also
       // what an unparseable response should mean: inventing a fact from a

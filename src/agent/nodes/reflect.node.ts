@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
+import { z } from 'zod';
 import { LLM_SERVICE } from '../../ai/llm/llm.constants';
 import type { LlmService } from '../../ai/llm/llm.types';
 import { AppConfigService } from '../../config/app-config.service';
@@ -32,11 +33,25 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-interface ReflectResponse {
-  gapFound: boolean;
-  reasoning: string;
-  followUps: { text: string; tool: string }[];
-}
+/**
+ * Same shape as before, now enforced. `toSubQuestions` maps over `followUps`, so
+ * a non-array reached `.map is not a function` and failed the run at the point
+ * the agent was deciding it had enough evidence — the least useful moment.
+ *
+ * `.catch([])` means a malformed `followUps` reads as "no gap worth a second
+ * hop", which is the node's ordinary outcome on most runs rather than a special
+ * case. `gapFound` is already ANDed with `followUps.length > 0` downstream, so
+ * the two degrade together.
+ */
+const reflectResponseSchema = z.object({
+  gapFound: z.boolean().optional(),
+  reasoning: z.string().optional(),
+  followUps: z
+    .array(z.object({ text: z.string().optional(), tool: z.string().optional() }))
+    .catch([]),
+});
+
+type ReflectResponse = z.infer<typeof reflectResponseSchema>;
 
 /** How much of each passage the reflector sees. Enough to judge coverage, not to answer. */
 const EVIDENCE_PREVIEW_CHARS = 400;
@@ -113,7 +128,7 @@ Propose at most 2 follow-ups. Use only the target names listed above. Reply with
 
     recordUsage(config, result);
 
-    const parsed = parseJsonObject<ReflectResponse>(result.text);
+    const parsed = parseJsonObject(result.text, reflectResponseSchema);
     if (!parsed) {
       this.logger.warn(`Unparseable reflect response, proceeding to synthesis: ${result.text}`);
       emit({ type: 'reflect_done', gapFound: false, followUps: [] });
@@ -123,7 +138,10 @@ Propose at most 2 follow-ups. Use only the target names listed above. Reply with
     const followUps = this.toSubQuestions(parsed.followUps ?? [], state, nextHop);
     // A claimed gap with no usable follow-up is not actionable — treat it as no gap
     // rather than looping back to `execute` with nothing pending.
-    const gapFound = parsed.gapFound && followUps.length > 0;
+    // `=== true` rather than truthiness: `gapFound` is optional now, and
+    // `undefined && ...` is `undefined`, which would put a non-boolean on the
+    // `reflect_done` event the UI and the eval suite both read.
+    const gapFound = parsed.gapFound === true && followUps.length > 0;
 
     emit({ type: 'reflect_done', gapFound, followUps });
     return { hops: nextHop, subQuestions: followUps, events };
@@ -173,15 +191,25 @@ Propose at most 2 follow-ups. Use only the target names listed above. Reply with
       return id;
     };
 
-    return followUps
-      .filter((followUp) => followUp.text?.trim())
-      .slice(0, 2)
-      .map((followUp) => ({
-        id: nextId(),
-        text: followUp.text,
-        tool: this.tools.has(followUp.tool) ? followUp.tool : this.tools.defaultToolName(),
-        status: 'pending' as const,
-        hop,
-      }));
+    return (
+      followUps
+        // A type predicate rather than a bare truthiness filter, so the `text` the
+        // map below uses is a string to the compiler as well as in fact. Without
+        // it the old cast was doing the narrowing, and silently.
+        .filter((followUp): followUp is { text: string; tool?: string } =>
+          Boolean(followUp.text?.trim()),
+        )
+        .slice(0, 2)
+        .map((followUp) => ({
+          id: nextId(),
+          text: followUp.text,
+          tool:
+            followUp.tool && this.tools.has(followUp.tool)
+              ? followUp.tool
+              : this.tools.defaultToolName(),
+          status: 'pending' as const,
+          hop,
+        }))
+    );
   }
 }

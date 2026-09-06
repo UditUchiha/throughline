@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
+import { z } from 'zod';
 import { LLM_SERVICE } from '../../ai/llm/llm.constants';
 import type { LlmService } from '../../ai/llm/llm.types';
 import { AppConfigService } from '../../config/app-config.service';
@@ -36,9 +37,36 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-interface PlanResponse {
-  subQuestions: { id: string; text: string; tool: string; dependsOn?: string[] }[];
-}
+/**
+ * The response shape, checked. `normalise` below calls `.slice()` and `.map()`
+ * on `subQuestions`, so a model that answered `{"subQuestions": "sq1, sq2"}`
+ * used to reach `.map is not a function` and fail the run — a string has a
+ * `length` and a `slice`, so it survives every guard until the last one.
+ *
+ * Every field is optional because `normalise` already supplies a default for
+ * each: a missing `id` becomes `sq{n}`, a missing `text` becomes the question, an
+ * unknown `tool` becomes the default tool. The schema's job is to stop a *wrong
+ * type* getting that far, not to re-impose requirements the node handles better.
+ *
+ * `.catch([])` on the array is the same bargain one level up: a `subQuestions`
+ * that is not a list of objects degrades to no plan, which is the node's
+ * documented "planner returned no sub-questions" path — a single broad search
+ * rather than a failed run.
+ */
+const planResponseSchema = z.object({
+  subQuestions: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        text: z.string().optional(),
+        tool: z.string().optional(),
+        dependsOn: z.array(z.string()).optional(),
+      }),
+    )
+    .catch([]),
+});
+
+type PlanResponse = z.infer<typeof planResponseSchema>;
 
 /**
  * Decomposes a complex question into independently searchable sub-questions.
@@ -87,7 +115,7 @@ Reply with JSON only.`;
 
     recordUsage(config, result);
 
-    const parsed = parseJsonObject<PlanResponse>(result.text);
+    const parsed = parseJsonObject(result.text, planResponseSchema);
     const subQuestions = this.normalise(parsed?.subQuestions ?? [], state.question, maxFanOut);
 
     emit({ type: 'plan_created', subQuestions });
@@ -159,7 +187,9 @@ Reply with JSON only.`;
 
     return capped.map((sq, i) => {
       const id = assignedIds[i];
-      const tool = this.tools.has(sq.tool) ? sq.tool : fallbackTool;
+      // `sq.tool` is now honestly optional, so the missing case is handled where
+      // the unknown case already was rather than reaching `tools.has(undefined)`.
+      const tool = sq.tool && this.tools.has(sq.tool) ? sq.tool : fallbackTool;
       if (tool !== sq.tool) {
         this.logger.warn(`Planner named unknown tool "${sq.tool}"; using ${fallbackTool}`);
       }

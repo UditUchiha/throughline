@@ -63,6 +63,7 @@ export class IndexingService {
       totalChunks: 0,
     };
 
+    await this.assertCorpusPresent(articles);
     await this.removeDeletedArticles(articles, summary);
 
     for (const loaded of articles) {
@@ -123,6 +124,48 @@ export class IndexingService {
     }
 
     return summary;
+  }
+
+  /**
+   * Refuses to treat "the corpus directory is empty" as "delete the whole index".
+   *
+   * `removeDeletedArticles` exists to keep the index honest when a file is
+   * deleted, and it derives *deleted* from absence — so a load that returns
+   * nothing reads as every document having been removed at once. That is almost
+   * never what happened. A misconfigured `KNOWLEDGE_PATH`, a volume mounted over
+   * the corpus, or a partial image build all produce an existing-but-empty
+   * directory, and §9 hit exactly that: without `COPY corpus`, the boot reindex
+   * would have deleted the baked index the image exists to ship — a *healthy*
+   * startup destroying the thing being deployed, with `removed=172` the only
+   * trace.
+   *
+   * The image copies the corpus now, so the operational hole is closed. This is
+   * the code-level half: the same mistake made a different way — a bad path, a
+   * bad mount — still ends in an empty index that costs ~172 embedding calls to
+   * rebuild, against a free tier that answers ~20 per window.
+   *
+   * It throws rather than warning, on the same reasoning as `verifyEnvironment`
+   * in the eval harness: the callers are a scheduler that logs and carries on
+   * (so the index survives and the log is loud), `POST /knowledge/reindex` (a 500
+   * naming the path, which is the honest answer to a request that cannot be
+   * met), and the Docker build (which fails, rather than shipping an image that
+   * deletes itself on first boot).
+   *
+   * A genuinely empty corpus with a genuinely empty index is not an error —
+   * that is a fresh install, and there is nothing to lose.
+   */
+  private async assertCorpusPresent(articles: unknown[]): Promise<void> {
+    if (articles.length > 0) return;
+
+    const indexed = await this.indexStateRepository.all();
+    if (indexed.length === 0) return;
+
+    throw new Error(
+      `Refusing to reindex: no documents found under "${this.config.knowledgePath}", but the ` +
+        `index holds ${indexed.length}. Continuing would delete every one of them. Check ` +
+        `KNOWLEDGE_PATH and that the corpus is present (a container needs \`COPY corpus\`); ` +
+        `if the corpus really is empty, clear the index deliberately instead.`,
+    );
   }
 
   /**

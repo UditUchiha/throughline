@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
+import { z } from 'zod';
 import { LLM_SERVICE } from '../../ai/llm/llm.constants';
 import type { LlmService } from '../../ai/llm/llm.types';
 import type { Complexity, SubQuestion } from '../agent.types';
@@ -29,10 +30,20 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-interface TriageResponse {
-  complexity: Complexity;
-  reasoning: string;
-}
+/**
+ * What the model is allowed to have said, checked rather than assumed.
+ *
+ * Both fields are optional because the node already has a defined answer for
+ * each being absent — `complexity` defaults to `complex` and `reasoning` to a
+ * stated fallback — so requiring them would turn a partial response into no
+ * response and lose the half that arrived. What the schema does enforce is the
+ * *type*: `reasoning` reaches an emitted event and then the UI, and a number
+ * there would render as one.
+ */
+const triageResponseSchema = z.object({
+  complexity: z.enum(['simple', 'complex']).optional(),
+  reasoning: z.string().optional(),
+});
 
 /**
  * Decides whether the question needs decomposition at all.
@@ -63,7 +74,7 @@ export class TriageNode {
 
     recordUsage(config, result);
 
-    const parsed = parseJsonObject<TriageResponse>(result.text);
+    const parsed = parseJsonObject(result.text, triageResponseSchema);
     const complexity: Complexity = parsed?.complexity === 'simple' ? 'simple' : 'complex';
     const reasoning = parsed?.reasoning ?? 'Triage response could not be parsed; assuming complex.';
 

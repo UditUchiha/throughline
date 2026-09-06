@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CorpusSource } from '../../common/types/knowledge.types';
+import { CORPUS_SOURCES, type CorpusSource } from '../../common/types/knowledge.types';
 
 /**
  * The question categories authored in `corpus/questions.yaml` (PLAN.md §6).
@@ -53,7 +53,7 @@ export const ledgerQuestionSchema = z.object({
   id: z.string().min(1),
   question: z.string().min(1),
   category: z.enum(questionCategories),
-  requiredSources: z.array(z.enum(['mail', 'chat', 'notes'])).default([]),
+  requiredSources: z.array(z.enum(CORPUS_SOURCES)).default([]),
   minHops: z.coerce.number().int().nonnegative().default(0),
   expectedAbstention: z.boolean().default(false),
 });

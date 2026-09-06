@@ -1,29 +1,24 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
+import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { RetrievalService } from './retrieval.service';
 import { RetrievedChunk } from './retrieved-chunk.type';
+import { searchQuerySchema, type SearchQuery } from './search-query.dto';
 
 @Controller('knowledge')
 export class RagController {
   constructor(private readonly retrievalService: RetrievalService) {}
 
+  /**
+   * The whole query object goes through the pipe rather than one parameter at a
+   * time, because `@Query('q')` hands back `req.query['q']` with a *declared*
+   * type and no check that the value matches it. Validating the object is what
+   * makes the handler's `SearchQuery` true rather than hopeful.
+   */
   @Get('search')
   async search(
-    @Query('q') query: string,
-    @Query('k') topK?: string,
+    @Query(new ZodValidationPipe(searchQuerySchema)) query: SearchQuery,
   ): Promise<{ query: string; results: RetrievedChunk[] }> {
-    if (!query || query.trim().length === 0) {
-      throw new BadRequestException('Query parameter "q" is required');
-    }
-
-    let k: number | undefined;
-    if (topK !== undefined) {
-      k = Number(topK);
-      if (!Number.isInteger(k) || k < 1 || k > 50) {
-        throw new BadRequestException('Query parameter "k" must be an integer between 1 and 50');
-      }
-    }
-
-    const results = await this.retrievalService.search(query, k);
-    return { query, results };
+    const results = await this.retrievalService.search(query.q, query.k);
+    return { query: query.q, results };
   }
 }

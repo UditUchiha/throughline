@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Database from 'better-sqlite3';
 import { SQLITE_CONNECTION } from '../../database/database.constants';
-import { Chunk } from '../../common/types/knowledge.types';
-import { ChunkRepository } from '../ports/chunk.repository';
+import { Chunk, isCorpusSource } from '../../common/types/knowledge.types';
+import { ChunkRepository, NewChunk } from '../ports/chunk.repository';
 
 interface ChunkRow {
   id: number;
@@ -19,7 +19,14 @@ function toChunk(row: ChunkRow): Chunk {
     articleId: row.article_id,
     chunkIndex: row.chunk_index,
     text: row.text,
-    source: row.source as Chunk['source'],
+    // Validated rather than cast. `source` is a plain TEXT column with no CHECK
+    // constraint, so anything can be in it — an older schema, a hand-edited row,
+    // a future source this build does not know about. A cast would hand that
+    // string onwards as a `CorpusSource` and it would end up indexing
+    // `SOURCE_STYLES` in the UI, which is the crash CLAUDE.md records for the
+    // closed-union era. Unrecognised reads as "no source", which every consumer
+    // already handles because `source` is nullable.
+    source: isCorpusSource(row.source) ? row.source : null,
     docId: row.doc_id,
   };
 }
@@ -28,10 +35,7 @@ function toChunk(row: ChunkRow): Chunk {
 export class SqliteChunkRepository implements ChunkRepository {
   constructor(@Inject(SQLITE_CONNECTION) private readonly db: Database.Database) {}
 
-  async insertMany(
-    articleId: number,
-    chunks: { chunkIndex: number; text: string; source: string | null; docId: string | null }[],
-  ): Promise<Chunk[]> {
+  async insertMany(articleId: number, chunks: NewChunk[]): Promise<Chunk[]> {
     const insert = this.db.prepare<
       [number, number, string, string | null, string | null],
       ChunkRow
@@ -39,13 +43,9 @@ export class SqliteChunkRepository implements ChunkRepository {
       `INSERT INTO chunks (article_id, chunk_index, text, source, doc_id) VALUES (?, ?, ?, ?, ?) RETURNING *`,
     );
 
-    const insertAll = this.db.transaction(
-      (
-        rows: { chunkIndex: number; text: string; source: string | null; docId: string | null }[],
-      ) => {
-        return rows.map((c) => insert.get(articleId, c.chunkIndex, c.text, c.source, c.docId)!);
-      },
-    );
+    const insertAll = this.db.transaction((rows: NewChunk[]) => {
+      return rows.map((c) => insert.get(articleId, c.chunkIndex, c.text, c.source, c.docId)!);
+    });
 
     return insertAll(chunks).map(toChunk);
   }

@@ -45,7 +45,22 @@ These describe the existing bar; match it.
 - **No `process.env` reads outside `src/config/`.** Everything goes through
   `AppConfigService`; new variables are added to `src/config/env.schema.ts` (Zod) first.
 - **No `console.log`.** Use the NestJS `Logger` / Pino.
-- **No raw type casts at API boundaries.** Zod schema + validation pipe.
+- **No raw type casts at *any* untrusted boundary.** HTTP in and out of a `ZodValidationPipe`
+  — including query strings, where `@Query('q') q: string` is a declaration and not a check
+  (a repeated `?q=a&q=b` is an array, and `.trim()` on it is a 500). **A model's reply is a
+  boundary too**, and was the last one exempt: `parseJsonObject` now *requires* a Zod schema,
+  because returning `parsed as T` meant `plan` called `.map()` on whatever the model sent and
+  `recall` called `.trim()` on it. Every node already had a fallback for a `null` return; the
+  cast is what stopped those from being reached. Note this validates what comes *back* —
+  each node's `RESPONSE_SCHEMA` (what is sent) is hand-written JSON Schema proven against the
+  live providers, and regenerating it is a change whose failure mode is invisible without
+  quota to test it.
+- **Domain unions are declared once, as a const tuple with a type guard.**
+  `CORPUS_SOURCES` + `isCorpusSource` in `src/common/types/knowledge.types.ts` is the source
+  of truth; `CorpusSource` is derived from it. The loader and the examples projection each
+  used to restate the same three strings, and a `source` read out of sqlite was cast rather
+  than checked. `src/config/env.schema.ts` keeps its own copy deliberately — the env schema is
+  parsed before anything else exists and stays free of domain imports.
 - **Business logic never imports `better-sqlite3`.** It depends on the repository ports in
   `src/repositories/ports/`, bound via DI tokens in `repositories.module.ts`.
 - **No abstractions before a second implementation exists** (PLAN.md §0.4).
