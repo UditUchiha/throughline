@@ -79,6 +79,55 @@ Score importance honestly: 0.9 for a correction the user made, 0.7 for a prefere
 stated outright, 0.3 for something merely implied. Reply with JSON only.`;
 
 /**
+ * First-person markers. A question containing none of these says nothing about
+ * the person asking, so there is nothing for extraction to act on.
+ *
+ * Contractions are matched by their stem — `\bi\b` does not match "I'm", so the
+ * apostrophe forms are listed. `i` is safe against "API" (both neighbours are
+ * word characters, so the boundary fails); it does match the "i" in "i.e.",
+ * which costs one unnecessary model call in a rare case. That is the right
+ * direction to err: a spurious extraction wastes a call, a missed one loses a
+ * fact the visitor volunteered.
+ */
+const SELF_REFERENCE =
+  /\b(?:i|i'm|i've|i'd|i'll|me|my|mine|myself|we|we're|we've|we'd|we'll|us|our|ours|ourselves)\b/i;
+
+/**
+ * Whether a question discloses anything about the person asking.
+ *
+ * **The gate PLAN.md §5/M6.1 left open, closed by measurement.** `remember` costs
+ * a `fast` model call on every answered run — roughly a fifth of a run's budget
+ * against a free tier of ~20 requests per window — and the extractor's own prompt
+ * says most exchanges contain nothing worth remembering. Whether to skip it on a
+ * heuristic was deliberately not decided in M4.2, because the deciding number did
+ * not exist: "if ~54 of 56 runs propose nothing, the gate is obviously right; if
+ * 20 propose something, it is not."
+ *
+ * M6's full suite measured it. **Across all 59 corpus questions, extraction
+ * proposed exactly zero candidates** — 59 model calls, no facts, no exceptions.
+ * That is stronger than the threshold the plan set, so the gate is in.
+ *
+ * It buys two things for one change:
+ *
+ * 1. **A model call per corpus-style run.** Retrieval questions about a company
+ *    are what this system is for, and none of them can produce a durable fact
+ *    about the visitor.
+ * 2. **It closes most of the injection path that outlives a run.** `remember`
+ *    extracts from the question *and the answer*, and an answer derives from
+ *    retrieved documents — so an attacker-authored passage could in principle
+ *    reach durable memory. Gating on the **question** means document text can no
+ *    longer trigger extraction at all: the visitor has to have disclosed
+ *    something first. HANDOFF recorded that channel as "narrow but not closed";
+ *    it is now closed except where the visitor themselves opens it.
+ *
+ * The cost is a false negative on self-disclosure phrased without a first-person
+ * word, which is rare and loses one fact rather than corrupting anything.
+ */
+export function mentionsSelf(question: string): boolean {
+  return SELF_REFERENCE.test(question);
+}
+
+/**
  * The long-term memory funnel: extract → score → deduplicate → store, plus
  * retrieval and consolidation (PLAN.md §5/M4.2).
  *
@@ -143,6 +192,13 @@ export class LongTermMemoryService {
     signal?: AbortSignal,
   ): Promise<{ stored: MemoryFact[]; merged: MemoryFact[] }> {
     try {
+      // Before the model call, not after it — the saving *is* the point. Counted
+      // so the gate keeps the evidence for itself: see `skippedNoSelfReference`.
+      if (!mentionsSelf(exchange.question)) {
+        await this.facts.incrementFunnel('skippedNoSelfReference');
+        return { stored: [], merged: [] };
+      }
+
       const candidates = await this.extract(exchange, signal);
       if (candidates.length === 0) return { stored: [], merged: [] };
 

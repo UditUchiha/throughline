@@ -17,6 +17,11 @@ you need, not the whole file. Index below.
 | Tests | `pnpm test` |
 | UI checks | `cd ui && pnpm lint && pnpm typecheck && pnpm test` |
 | Re-verify the corpus answer key | `pnpm corpus:generate --verify-only` (no model calls, seconds) |
+| Eval suite (agent) | `pnpm eval` — `--subset=pr` for the 9-question CI subset, `--no-judge` for zero model calls. Only a full pass writes `results-latest.json`; narrowed runs write elsewhere |
+| Eval suite (control) | `pnpm eval --baseline=single-shot` |
+| Regression gate | `pnpm eval:compare` · conventions gate: `pnpm check:conventions` |
+| Re-derive a scored cutoff | `pnpm eval:sweep` (reads `evals/results-latest.json`, no model calls) |
+| Validate the LLM judge | `pnpm eval:judge-agreement` (20 hand labels, 20 model calls) |
 | Ask the agent | `curl -N -X POST localhost:5000/agent/ask -H 'Content-Type: application/json' -d '{"question":"..."}'` |
 | Ask a follow-up | same, plus `"sessionId":"<the id from run_started>"` |
 | Memory retention funnel | `curl -s localhost:5000/memory/stats` |
@@ -85,6 +90,7 @@ src/memory/       long-term memory: extract → score → dedup → store, plus 
 src/agent/replay/ recorded runs replayed over SSE — the §9 demo fallback, and free UI iteration
 src/integrations/mcp/ MCP client host: connect → discover → allowlist → adapt (M5)
 src/integrations/mcp/demo/ the in-process MCP server DEMO_MODE serves
+src/guardrails/   five deterministic checks in two stages; run live AND scored by evals (M6)
 src/agent/examples/ corpus/questions.yaml projected for the UI's one-click examples
 src/observability/ LangSmith bridge, TraceCollector (span tree), UsageService (cost)
 ui/               Next.js UI — its own package and toolchain, deployed separately
@@ -92,7 +98,7 @@ fixtures/runs/    captured agent runs (committed); written by `pnpm capture:runs
 fixtures/mcp/vault/ the synthetic Obsidian vault the demo connector searches
 src/ai/, src/embeddings/  Ollama chat + embedding clients
 corpus/           ledger (ground truth) + generated documents + questions
-evals/            eval harness (generalized in M6; currently empty)
+evals/            the eval harness — see evals/README.md before touching it (M6)
 scripts/          one-off authoring tools, run outside the Nest context
 ```
 
@@ -148,13 +154,71 @@ Five UI traps worth not re-learning:
 
 ## Known state
 
-M0–M5 are done: retrieval is proven end-to-end (172/172 documents indexed, live agent runs
-producing cited answers), the agent is reachable at `POST /agent/ask` (SSE), `ui/` renders the
-stream, runs are traced twice — into sqlite (`runs` + `run_spans`, bounded by
-`TRACE_RETENTION_RUNS`) and, when a key is set, to LangSmith — the agent remembers both within
-a session and across sessions, and MCP connectors join the same tool registry. Both traces show
-a node → tool → model tree; each run carries token counts and an estimated cost.
-**M6 (evals + guardrails + CI) is next.**
+M0–M6 are done: retrieval is proven end-to-end (172/172 documents indexed), the agent is
+reachable at `POST /agent/ask` (SSE), `ui/` renders the stream, runs are traced twice — into
+sqlite (`runs` + `run_spans`, bounded by `TRACE_RETENTION_RUNS`) and, when a key is set, to
+LangSmith — the agent remembers both within a session and across sessions, MCP connectors join
+the same tool registry, and an eval suite scores the whole thing against the answer key with a
+CI gate on top. **What remains is §9 deployment.**
+
+M6's numbers, over all 59 questions (see README and HANDOFF): answer correctness **61.0%**
+(96.6% with partial credit), citation support 88.4%, abstention correctness 100%, recall@k
+92.5%, citation validity 100%, injection resistance 100% over the 9 runs that retrieved a
+payload. 0 failed, 0 unjudged, $0.13.
+
+⚠️ **One M6 acceptance criterion is outstanding:** the agent-vs-baseline delta. The agent pass
+exhausted the day's free tier on both providers, so `pnpm eval --baseline=single-shot` returned
+`rate limit reached` for 56 of 59. A second attempt on 2026-09-06 got **21 of 59** through
+before both providers' *daily* caps went; those 21 are cached, failed runs are not, so the next
+attempt pays only for the remaining 38. PLAN.md §5/M6 leaves that box **un-ticked** on purpose.
+
+Six things about `evals/` and `src/guardrails/` worth knowing before touching either — the
+full argument is in `evals/README.md`:
+
+- **The suite runs with connectors OFF and long-term memory RESET between questions.** Both
+  would otherwise be inherited from the environment and quietly change what is measured:
+  `DEMO_MODE` defaults to *on*, and the vault it serves is not in the answer key; and `recall`
+  + `remember` make 59 sequential questions order-dependent. Both settings are recorded in
+  `results-latest.json` with every run and both have a flag to invert them.
+- **The judge is separated by provider, not by tier.** PLAN.md §7 asks for a different tier;
+  on the free tier `deep` resolves to the same model as `default`, so that separation does not
+  exist here. Gemini answers, Groq judges. When even that is unavailable the results record
+  `separateProvider: false` and the table prints a warning. One judge call per question returns
+  all three judged verdicts, so **they are not independent judgments**.
+- **A failed run is never cached, and a judge failure degrades one question rather than the
+  suite.** Both learned the hard way — a quota wall wrote 56 failures into the cache, and one
+  transient judge error ended a 35-question pass. A cache whose purpose is "a killed run
+  resumes" must not persist the thing that killed it.
+- **`citationValidity` rises as the agent cites less**, because an answer with no markers is
+  vacuously valid. The suite reports `cited / answered` beside it for exactly that reason —
+  and on the first run that gap was 43/50. The same property is why **`pnpm eval:compare`
+  refuses to gate a run that failed more than 10%**: a failed run scores zero rather than
+  being dropped, but the two metrics carrying *hard floors* are computed over the runs that
+  returned, so a quota outage passed every check while measuring nothing. The committed
+  `single-shot` mode (38 of 59 failed, `citationValidity: 1`) is the specimen, and
+  `evals/compare.spec.ts` pins it. **`renderTable` guards both sides** — the current mode as
+  well as the one it is compared against. Guarding only the latter let the walled baseline
+  print `single-shot 66.7% vs agent 61.0%, +5.6pp`: the control beating the agent, because
+  judged rates use the denominator a judge actually saw while the deterministic ones score
+  every failure as zero. Half the column read high and half read low.
+- **Guardrails run on every live request, not only under the harness.** `AgentController` runs
+  the input stage before the SSE stream opens; `AgentGraphService` runs the post-run stage
+  after `run_finished` and returns the verdicts on `AgentRunResult`. They are *not* on the
+  event contract, which stays frozen. Only `question-abuse` can refuse anything, and only on
+  size and padding — blocking on injection vocabulary would refuse `q.assistant-injection-policy`,
+  which is one of the questions the suite scores. Three consequences of that placement:
+  **severity is per *verdict*, not per guardrail** (the allowed injection finding reports `warn`
+  even though the guardrail is declared `block`, or every run of that question logs an ERROR);
+  **`blocks` is derived, `input` stage only** (an `output` guardrail runs after `run_finished`,
+  so `exfiltration` is `block` severity and blocks nothing — ask `GuardrailService.blocked()`
+  rather than importing a concrete guardrail); and **the post-run sweep cannot throw out of
+  itself** — it is wrapped, because the enclosing `catch` would emit `run_failed` after
+  `run_finished` and record `answer: null` over an answer the client already received.
+- **Extraction is now gated on first-person markers** (`mentionsSelf`), decided by M6's
+  measurement of 0 candidates proposed across 59 runs. It saves a model call per corpus-style
+  run and closes the document-to-memory injection path. The committed results **predate** the
+  gate deliberately — they are its evidence — and a `skippedNoSelfReference` funnel counter
+  keeps "the gate fired" distinguishable from "the extractor found nothing" afterwards.
 
 Connectors are `src/integrations/mcp/` (M5). `McpHostService` connects to configured servers at
 boot, discovers their tools, and returns plain `AgentTool`s — the graph never learns MCP exists,

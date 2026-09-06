@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { ConfigModule } from '../config/config.module';
 import { DatabaseModule } from '../database/database.module';
+import { GuardrailsModule } from '../guardrails/guardrails.module';
 import { McpModule } from '../integrations/mcp/mcp.module';
 import { McpHostService } from '../integrations/mcp/mcp-host.service';
 import { MemoryModule } from '../memory/memory.module';
@@ -38,6 +39,7 @@ import { ToolRegistry } from './tools/tool-registry';
     RepositoriesModule,
     MemoryModule,
     McpModule,
+    GuardrailsModule,
     // Imported directly, and only for `agentCheckpointerProvider`: the LangGraph
     // checkpointer takes the live connection rather than opening its own. See
     // that provider for why it is not a repository port.

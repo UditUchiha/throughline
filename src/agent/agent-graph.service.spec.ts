@@ -14,6 +14,12 @@ import { SynthesizeNode } from './nodes/synthesize.node';
 import { TriageNode } from './nodes/triage.node';
 import type { AgentTool } from './tools/agent-tool';
 import { ToolRegistry } from './tools/tool-registry';
+import { AbstentionConsistencyGuardrail } from '../guardrails/abstention-consistency.guardrail';
+import { CitationCoverageGuardrail } from '../guardrails/citation-coverage.guardrail';
+import { ExfiltrationGuardrail } from '../guardrails/exfiltration.guardrail';
+import { GuardrailService } from '../guardrails/guardrail.service';
+import { InjectionDetectionGuardrail } from '../guardrails/injection-detection.guardrail';
+import { QuestionAbuseGuardrail } from '../guardrails/question-abuse.guardrail';
 import { LangSmithTracing } from '../observability/langsmith-tracing.service';
 import { TraceCollector } from '../observability/trace-collector.service';
 import type { CheckpointRepository } from '../repositories/ports/checkpoint.repository';
@@ -132,12 +138,24 @@ class FakeCheckpointRepository implements CheckpointRepository {
   }
 }
 
+/** The production guardrail set, hand-wired — see the note at the call site. */
+function realGuardrails(): GuardrailService {
+  return new GuardrailService(
+    new QuestionAbuseGuardrail(),
+    new InjectionDetectionGuardrail(),
+    new CitationCoverageGuardrail(),
+    new ExfiltrationGuardrail(),
+    new AbstentionConsistencyGuardrail(),
+  );
+}
+
 function buildGraph(
   script: Script,
   overrides: Partial<AppConfigService> = {},
   traceRepo: TraceRepository = new FakeTraceRepository(),
   checkpointRepo: CheckpointRepository = new FakeCheckpointRepository(),
   memory: LongTermMemoryService = noMemory(),
+  guardrails: GuardrailService = realGuardrails(),
 ): AgentGraphService {
   const llm = scriptedLlm(script);
   const registry = new ToolRegistry([
@@ -163,6 +181,10 @@ function buildGraph(
     new ReflectNode(llm, registry, config),
     new SynthesizeNode(llm),
     new RememberNode(memory),
+    // The real guardrails, not a stub: they are deterministic and stateless, so
+    // wiring the actual set is both cheaper than faking it and the only way these
+    // tests would notice a guardrail that started throwing on a live answer.
+    guardrails,
     new TraceCollector(traceRepo),
     // The real saver over an in-memory database, one per graph. A fake would make
     // the multi-turn tests below assert against a stub of the thing under test —
@@ -347,6 +369,47 @@ describe('AgentGraphService', () => {
     expect(streamed).toEqual(result.events.map((e) => e.type));
     expect(result.events.map((e) => e.seq)).toEqual(result.events.map((_, i) => i));
   });
+  it('does not let a throwing guardrail destroy an answer it has already delivered', async () => {
+    // The sweep runs *after* `run_finished` is emitted, so a guardrail that threw
+    // used to fall through to the enclosing catch: `run_failed` on a stream that
+    // had already been told the run succeeded, and a trace recorded as
+    // `status: 'failed'` with `answer: null`. The answer reached the client and
+    // was then erased from the record, on behalf of a check whose only job is to
+    // describe it.
+    const traceRepo = new FakeTraceRepository();
+    const broken = realGuardrails();
+    jest
+      .spyOn(broken, 'checkRun')
+      .mockRejectedValue(new Error('guardrail exploded on a 2MB answer'));
+
+    const graph = buildGraph(
+      {
+        triage: { complexity: 'simple', reasoning: 'one fact' },
+        plan: { subQuestions: [] },
+        reflect: [NO_GAP],
+        synthesis: { answer: 'The date was 25 February [1].', abstained: false },
+      },
+      {},
+      traceRepo,
+      new FakeCheckpointRepository(),
+      noMemory(),
+      broken,
+    );
+
+    const result = await graph.run({ question: 'When did Helios ship?' });
+    const types = result.events.map((e) => e.type);
+
+    expect(types).not.toContain<AgentEventType>('run_failed');
+    expect(types[types.length - 1]).toBe('run_finished');
+    expect(result.answer.text).toBe('The date was 25 February [1].');
+    // A sweep that could not run is a missing measurement, not a failed run.
+    expect(result.guardrails).toEqual([]);
+
+    const recorded = traceRepo.saved[traceRepo.saved.length - 1].run;
+    expect(recorded.status).toBe('finished');
+    expect(recorded.answer?.text).toBe('The date was 25 February [1].');
+  });
+
   describe('tracing', () => {
     const simpleScript = {
       triage: { complexity: 'simple', reasoning: 'one fact' },
@@ -457,6 +520,7 @@ describe('AgentGraphService', () => {
         new ReflectNode(exploding, registry, config),
         new SynthesizeNode(exploding),
         new RememberNode(noMemory()),
+        realGuardrails(),
         new TraceCollector(repo),
         new SqliteSaver(new Database(':memory:')),
         new FakeCheckpointRepository(),
@@ -694,6 +758,7 @@ describe('AgentGraphService', () => {
         new ReflectNode(llm, registry, config),
         new SynthesizeNode(llm),
         new RememberNode(memory),
+        realGuardrails(),
         new TraceCollector(new FakeTraceRepository()),
         new SqliteSaver(new Database(':memory:')),
         new FakeCheckpointRepository(),

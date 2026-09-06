@@ -33,6 +33,19 @@ corpus/generated/.cache/
 # on every run via its timestamp.
 corpus/.generation-report.json
 
+# Eval harness working files. `.cache/` is per-question run and judgment results,
+# which exist so a killed suite resumes instead of paying ~295 model calls again;
+# `evals.db` is the isolated copy of the index the suite runs against, so eval
+# traffic never lands in the trace store that §9 bakes into the deployed image.
+# Both are regenerable. `results-latest.json` is NOT ignored — it is the source
+# for the README's numbers and has to be reviewable in a diff, and neither is
+# `results-pr-subset.json`, which is what `baseline.json` was recorded from.
+# `results-partial.json` is: it is wherever a `--only`/`--category`/`--limit` run
+# lands so that it cannot overwrite either of those, and a one-question suite is
+# not a number anyone should be reviewing.
+evals/.cache/
+evals/results-partial.json
+
 # UI (added in M2)
 ui/.next/
 ui/node_modules/

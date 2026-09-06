@@ -33,7 +33,7 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M4.1 — short-term memory** | ✅ Done | LangGraph checkpointer (`@langchain/langgraph-checkpoint-sqlite`) keyed by `sessionId` over the existing connection; a `recall` node ahead of `triage` resolves follow-ups against the checkpointed turns. `sessionId` appended to `run_started` and plumbed through the UI, which had never sent one. `memory_read` / `memory_written` now carry real refs. Retention bounded by `CHECKPOINT_RETENTION_SESSIONS`. |
 | **M4.2 — long-term memory** | ✅ Done | `LongTermMemoryService` — extract → score → dedup → store, with funnel counters at `GET /memory/stats`; consolidation job merges near-duplicates and forgets facts unused past `MEMORY_TTL_DAYS`. Facts get their own table + vec index rather than living in `chunks` (see the deviation below). Verified live across sessions. |
 | **M5 — MCP connectors** | ✅ Done | `McpHostService` connects to configured servers at boot, discovers their tools and registers them into the existing registry. **No file under `src/agent/nodes/` changed** — the M1 tool shape held; the only structural change was making the `AGENT_TOOLS` factory async. `DEMO_MODE` (default on) serves a real in-process MCP server over the SDK's in-memory transport, so the credential-free demo exercises the whole path rather than bypassing it. Security section built: allowlisted tool surface, schema-validated arguments, retrieved content fenced as untrusted, and 3 adversarial corpus documents carrying real payloads. Verified live both ways — the planner chose the connector unprompted and cited it, and an injected document was described rather than obeyed. |
-| **M6 — evals + CI** | ⬜ **← next task** | Unchanged from the plan below. Note that M5 left it two new jobs: scoring injection resistance (the `adversarial` question category, 3 questions), and deciding whether the eval harness runs with `DEMO_MODE` on — the connector adds a source the answer key does not cover. A post-M5 review also surfaced that long-term memory has no per-visitor scope, which is a §9 decision rather than a patch — see HANDOFF's known gaps. |
+| **M6 — evals + guardrails + CI** | 🟡 Built; two criteria quota-blocked | `evals/` written from scratch (it never existed — see the deviation below), `src/guardrails/` with five deterministic checks running on every live run *and* scored by the suite, and two GitHub Actions workflows. Both M5 jobs are done: injection resistance is scored deterministically over the runs that actually retrieved an adversarial document, and the harness runs with connectors **off** for a stated reason. Both memory questions from §5/M6.1 are answered from a real run rather than estimated. Numbers, and the three findings the first run surfaced, are in the README and in HANDOFF. **Two acceptance criteria are outstanding, both blocked on quota rather than code** — the agent-vs-baseline delta (~118 model calls) and the judge-agreement figure (20 calls). The 59-question agent pass exhausted the day's free tier on both configured providers; everything for both is written and tested, and failed runs are not cached so a re-run pays only for what is missing. See the M6 criteria below. |
 
 > [!NOTE]
 > **The embedding/retrieval path is now proven end-to-end** (2026-09-02, resolving the
@@ -1046,14 +1046,87 @@ worth documenting.
 
 #### Acceptance criteria — M6
 
-- [ ] `pnpm eval` produces a metrics table and writes `evals/results-latest.json`.
-- [ ] `pnpm eval --baseline=single-shot` runs the non-agentic comparison.
-- [ ] README contains a results table with both, and the delta.
-- [ ] A deliberately regressing PR fails CI; the failure output names the metric and delta.
-- [ ] Every guardrail has a unit test for both pass and fail paths.
-- [ ] The LLM judge's agreement with hand labels is measured and reported.
-- [ ] The two memory questions above are answered from the run, not estimated: a retention
+- [x] `pnpm eval` produces a metrics table and writes `evals/results-latest.json`.
+- [x] `pnpm eval --baseline=single-shot` runs the non-agentic comparison. Implemented as a
+      mode of the same harness, scored by the identical code, and verified on real questions.
+- [ ] **README contains a results table with both, and the delta.** The agent half is done and
+      complete — all 59 questions, 0 failed, 0 unjudged — and it is in the README. The baseline
+      half is **blocked on quota, not on code**: the agent pass spent the day's free-tier
+      budget on *both* configured providers, and `pnpm eval --baseline=single-shot` then
+      returned `rate limit reached` from gemini and groq alike for 56 of 59 questions. A second
+      attempt later the same day got **21 of 59** through before both providers' *daily* caps
+      went, so the remaining work is 38 questions rather than 59: the successful runs are
+      cached and failed runs never are, so a re-run pays only for what is still missing.
+      Left un-ticked deliberately rather than quietly reworded. This is the criterion §5/M6.1
+      calls "the headline number", and a plan that ticks it over a table with one column
+      filled is exactly the kind of thing the eval suite exists to stop.
+- [x] A deliberately regressing PR fails CI; the failure output names the metric and delta.
+      Covered permanently by `evals/compare.spec.ts`, which runs against the *committed*
+      `baseline.json` so a floor lowered or a tolerance widened until nothing trips it breaks
+      the tests rather than quietly disarming the gate.
+- [x] Every guardrail has a unit test for both pass and fail paths
+      (`src/guardrails/guardrails.spec.ts`).
+- [ ] **The LLM judge's agreement with hand labels is measured and reported.** The 20
+      hand-authored items exist (`evals/judge-labels.json`, each naming a ledger question, an
+      answer, and the documents it cites), `pnpm eval:judge-agreement` runs them through the
+      same judge the suite uses and reports per-dimension agreement plus a confusion matrix,
+      and the label file states its own limitation — the answers are authored rather than
+      sampled from real runs, so any figure it produces is an optimistic bound.
+      **It has not been run to completion.** Same cause as the criterion above: 20 judge calls
+      against a provider whose window the 59-question pass had already exhausted. One item
+      scored before the wall (`exact-correct`, agreeing on all three dimensions), which is not
+      a measurement. Left un-ticked rather than reported from n=1.
+- [x] The two memory questions above are answered from the run, not estimated: a retention
       rate over a real sample, and a decision on whether to gate extraction.
+      **Both answered by the same number.** Across all 59 questions the extractor proposed
+      **zero** candidates, so (a) `stored / proposed` is `0/0` — *undefined*, not zero, and the
+      README still quotes the mechanism and the raw counts rather than a headline percentage;
+      and (b) the gate is in. §5/M6.1 set the bar at "if ~54 of 56 runs propose nothing, the
+      gate is obviously right"; 0 of 59 clears it. `mentionsSelf` in
+      `long-term-memory.service.ts` now skips extraction when the question contains no
+      first-person marker, which saves a `fast` call on every corpus-style run **and** closes
+      the document-to-memory injection path M5 left open — an answer derives from retrieved
+      documents, but the *question* does not, so attacker-authored text can no longer reach
+      durable memory at all.
+      A `skippedNoSelfReference` funnel counter records how often the gate fires, because
+      after it ships `proposed: 0` is 0 by construction and would otherwise be
+      indistinguishable from the behaviour that justified it.
+
+**Deviations, all deliberate — see `evals/README.md` for the full reasoning:**
+
+- **`evals/run-evals.ts` did not exist.** §3 calls it "the strongest existing asset" and
+  §5/M6.1 says to rewrite it keeping its two best traits. That code lived in the original
+  client repo and was never carried across; `git log -- evals/` is empty. It was written from
+  scratch, keeping the two traits described (a real Nest application context, a forced
+  deterministic reindex) because they are good, not because there was code to preserve.
+- **The judge is separated by provider, not by tier.** §7 asks for a different model tier.
+  On the free tier `deep` resolves to the same model as `default`, so that separation does not
+  exist here. The judge runs on the first configured fallback provider instead (Groq, with the
+  recommended setup), and when even that is unavailable the results record
+  `separateProvider: false` and the table prints a warning rather than implying independence.
+- **One judge call per question returns all three judged verdicts.** Three calls would be more
+  independent and would cost 118-177 more against a free tier of ~20 per window, which in
+  practice means the suite does not get run. The verdicts are therefore not independent, which
+  is stated wherever the numbers appear.
+- **The suite runs with connectors off and long-term memory reset between questions.** The
+  first keeps every score attributable to the hand-authored answer key; the second keeps the
+  suite reproducible. Both are recorded in `results-latest.json` with every run, and both have
+  a flag to invert them.
+- **Two of M6.2's listed guardrails were deliberately not built**, on §0.4's reasoning.
+  *"No PII from one source leaking into an answer scoped to another"* guards a boundary the
+  product does not have — an answer merges evidence from every tool the plan used, by design,
+  and a guardrail enforcing a non-existent scope would pass 100% of the time while looking
+  like a control. *"Refusal correctness on unanswerable questions"* is not checkable where an
+  answer is produced: whether refusing was right depends on whether the corpus could have
+  answered, which only the answer key knows. It is scored as a metric (abstention correctness)
+  instead, and the locally-checkable half — that an abstention did not also answer — is the
+  `abstention-consistency` guardrail.
+- **Nightly results are archived and uploaded, not committed to `evals/history/`.** §5/M6.3
+  asks for a committed history and a README trend table. Pushing to `main` from a scheduled
+  workflow needs `contents: write` on a public repo, which is a decision worth making
+  deliberately rather than as a side effect of wanting a table — and a trend over zero nightly
+  runs is an empty one. The archive step is written; enabling the push is a one-line change
+  once there is history worth trending.
 
 ---
 

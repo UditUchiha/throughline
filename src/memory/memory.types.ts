@@ -41,6 +41,21 @@ export interface MemoryCandidate {
  * three unrelated numbers.
  */
 export interface MemoryFunnel {
+  /**
+   * Runs where extraction never ran, because the question said nothing about the
+   * person asking (M6 — see `mentionsSelf` in `long-term-memory.service.ts`).
+   *
+   * Counted rather than silent, and that is the point of it. Once the gate ships,
+   * `proposed: 0` over a corpus suite is 0 *by construction*, so a later reader
+   * could not tell the gate from the behaviour that justified it. This counter
+   * keeps the evidence visible: `skippedNoSelfReference` is how many model calls
+   * the gate saved, and `proposed` stays a measurement of what got past it.
+   *
+   * Outside the funnel arithmetic on purpose — a skipped run proposes nothing, so
+   * it is not a candidate that was discarded. `proposed - dropped - merged -
+   * stored` is still 0.
+   */
+  skippedNoSelfReference: number;
   proposed: number;
   droppedLowImportance: number;
   mergedDuplicate: number;
@@ -50,6 +65,7 @@ export interface MemoryFunnel {
 export type MemoryFunnelStage = keyof MemoryFunnel;
 
 export const MEMORY_FUNNEL_STAGES: MemoryFunnelStage[] = [
+  'skippedNoSelfReference',
   'proposed',
   'droppedLowImportance',
   'mergedDuplicate',

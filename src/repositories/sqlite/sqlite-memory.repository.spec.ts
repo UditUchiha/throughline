@@ -139,6 +139,7 @@ describe('SqliteMemoryRepository', () => {
     // A stage that has never fired must read 0, not go missing: the funnel is
     // only interpretable if every stage is present.
     expect(await repo.funnel()).toEqual({
+      skippedNoSelfReference: 0,
       proposed: 4,
       droppedLowImportance: 0,
       mergedDuplicate: 0,

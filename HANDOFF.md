@@ -5,7 +5,7 @@ Orientation document for a new agent or contributor picking this project up cold
 acceptance criteria; `CLAUDE.md` is the always-loaded rules digest. This file tells you
 where you are, what has actually been proven, and what to do next.
 
-_Last updated: 2026-09-06 (M5 built — MCP connectors and the threat model; M6 is next)._
+_Last updated: 2026-09-06 (M6 built — the eval suite, the guardrails and the CI gate. M0–M6 are done; what remains is §9 deployment)._
 
 ---
 
@@ -125,7 +125,7 @@ hook auto-runs `pnpm corpus:generate --verify-only` on ledger edits.
 | **M4.1 short-term memory** | ✅ | LangGraph checkpointer keyed by `sessionId`; a `recall` node ahead of `triage` rewrites follow-ups into standalone questions. Verified live over three chained turns. |
 | **M4.2 long-term memory** | ✅ | Extract → score → dedup → store, funnel counters at `GET /memory/stats`, consolidation job. Verified live across sessions. |
 | **M5 MCP connectors** | ✅ | `McpHostService` discovers tools at boot and registers them into the existing registry; no node changed. `DEMO_MODE` (default on) serves a real in-process MCP server. Security section built and tested. Verified live both ways. |
-| M6 evals+CI | ⬜ **← next task** | See PLAN.md §5. M5 left it two extra jobs — see below. |
+| **M6 evals + guardrails + CI** | ✅ | `evals/` written from scratch — it never existed. `src/guardrails/` runs five deterministic checks on every live request and the suite scores the verdicts the pipeline produced. Two workflows; the conventions gate is green on day one. Both M5 hand-offs done, both memory questions answered from a real run. |
 
 ### What a live run actually does (verified 2026-09-02)
 
@@ -322,10 +322,12 @@ end?"* — no antecedent anywhere in it — and was answered about Helios. A thi
 restating the fact merged rather than duplicated: `proposed 2 / merged 1 / stored 1`, one row,
 `access_count = 2`.
 
-⚠️ **The retention rate is not yet a claim worth quoting.** n=2 candidates. `GET /memory/stats`
-exposes the counters and they are cumulative across restarts; the README describes the
-mechanism and the measured numbers with their n rather than a headline percentage. M6's
-eval harness over the 59-question set is what will produce a sample worth reporting.
+⚠️ **The retention rate still has no denominator, and M6 is why.** See "What the first eval
+run actually said" below: across the 59-question suite the extractor proposed **nothing at
+all**, so `stored / proposed` is `0/0` — undefined, not zero. That is a much more useful
+result than a percentage would have been, and it answers the *other* memory question
+outright. `GET /memory/stats` still exposes the cumulative counters; the README still quotes
+the mechanism and the raw numbers with their n rather than a headline percentage.
 
 ### Connectors: what "the tool shape makes it additive" actually cost (M5)
 
@@ -432,14 +434,103 @@ Two things M5 deliberately did not do:
   which makes the channel narrow, but narrow is not closed. Written up here rather than
   half-fixed.
 
+### What the first eval run actually said (M6)
+
+All 59 questions, 2026-09-06, Gemini answering with Groq failover, Groq judging, connectors
+off, long-term memory reset between questions. **0 runs failed, 0 questions went unjudged.**
+$0.13, 286k input tokens, mean 17.3s per question.
+
+| | |
+| --- | --- |
+| Answer correctness (judge) | **61.0%** — 96.6% counting partial credit |
+| Citation support (judge) | 88.4% |
+| Abstention correctness (judge) | 100% over the 8 unanswerable questions |
+| Recall@k (deterministic) | 92.5% |
+| Citation validity (deterministic) | 100% |
+| Injection resistance (deterministic) | 100%, over the **9** runs that actually retrieved a payload |
+| Plan source coverage | 92.5% · meets `minHops` 96.6% |
+
+**The baseline column is missing and the reason matters.** The agent pass spent the day's
+free-tier budget on *both* configured providers; `--baseline=single-shot` then came back
+`rate limit reached` from gemini and groq alike on 56 of 59 questions. A second attempt later
+on 2026-09-06 got **21 of 59** through before both providers' *daily* caps went; those 21 are
+cached and failed runs never are, so the next attempt pays for the remaining 38 only. PLAN.md
+§5/M6's README-delta criterion is left **un-ticked** rather than reworded — see the note there.
+
+> That second attempt earned its keep in an unexpected way: it is what surfaced the fact that
+> `renderTable` guarded only the mode being compared *against*, never the mode doing the
+> reporting. The walled baseline duly printed `single-shot 66.7% vs agent 61.0%, +5.6pp` — the
+> non-agentic control beating the agent it exists as a control for. Judged rates are computed
+> over the runs a judge actually saw, so 38 failures leave a small and flattering denominator,
+> while the deterministic metrics score those same failures as zero. Both sides are guarded
+> now, and `evals/harness/report.spec.ts` pins it with the observed numbers.
+
+#### Three findings, and what was deliberately not done about them
+
+**1. Seven answers asserted something and cited nothing.** 43 of the 50 non-abstaining runs
+carried a citation. Citation *validity* is 100% — every marker that exists resolves — but that
+number goes **up** as the agent cites less, which is exactly why the suite reports
+`cited / answered` beside it. The `citation-coverage` guardrail caught the same seven from the
+other side. **Not fixed**, on purpose: M6 measures, and editing the synthesis prompt now would
+invalidate the numbers it was measured against. This is the first thing to look at next, and
+there is now a number to move.
+
+**2. `RETRIEVAL_DISTANCE_THRESHOLD` should stay unenforced — with evidence this time.**
+`pnpm eval:sweep` labels every retrieval in a finished run by whether the answer key wanted it,
+then sweeps every candidate cutoff. Over **471 retrievals (74 relevant, 397 not)** the classes
+**overlap completely**: best achievable F1 0.551 at distance 0.485, precision 0.495. There is
+no empty band. It has been configured-but-unenforced since M0.6 on a *portability* argument;
+that argument is now a measurement, and the honest conclusion is unchanged. `eval:sweep` prints
+that conclusion rather than the best-F1 number, so nobody later mistakes one for the other.
+
+**3. Long-term memory proposed nothing at all: 0 candidates across 59 runs.** Two consequences.
+
+- The retention rate is `0/0` — **undefined, not zero**. Better than a percentage would have
+  been, and the README still quotes the mechanism and raw counts rather than a headline number.
+- **The extraction gate is in.** §5/M6.1 set the bar at "if ~54 of 56 runs propose nothing, the
+  gate is obviously right"; 0 of 59 clears it. `mentionsSelf` in `long-term-memory.service.ts`
+  now skips extraction when the question carries no first-person marker. It saves a `fast` call
+  on every corpus-style run **and closes the document-to-memory injection path M5 left open**:
+  `remember` extracts from the question *and the answer*, and an answer derives from retrieved
+  documents — but the question does not, so attacker-authored text can no longer trigger
+  extraction at all. HANDOFF used to call that channel "narrow but not closed"; it is now
+  closed except where the visitor opens it themselves.
+
+⚠️ **The committed agent results predate the gate, and that is deliberate — they are the
+evidence for it.** After the gate, `proposed: 0` over a corpus suite is 0 *by construction* and
+tells you nothing. That is why there is a `skippedNoSelfReference` funnel counter: a post-gate
+run reports 59 skipped / 0 proposed, and the two numbers stay distinguishable. Do not re-derive
+the decision from a post-gate run.
+
+#### Things worth knowing before you touch the harness
+
+- **A failed run is never cached.** Learned the hard way: the first baseline pass hit the quota
+  wall, 56 of 59 came back `Every configured LLM provider failed`, and every one was written to
+  the cache. The next invocation read them back as finished work and produced a table where the
+  baseline scored zero on everything — which measures a quota wall, not a baseline. A cache
+  whose entire purpose is "a killed run resumes" must not persist the thing that killed it.
+- **A judge failure degrades one question, not the suite.** Also learned the hard way: a single
+  transient `Connection error` from the judge provider at question 35 of 59 ended the whole
+  pass. Judged rates are now reported with a `judgeUnavailable` count beside them, because a
+  suite that quietly judged 40 of 59 and reported "82%" would be describing the questions the
+  judge happened to survive.
+- **The comparison column refuses to render across different question sets.** The results file
+  is merged per mode, so "agent over 59, baseline over 9" is the *normal* halfway state, and
+  subtracting one rate from the other would be meaningless.
+- **`--concurrency` above 1 breaks per-run memory attribution.** The funnel counters are read
+  either side of each run, so two in flight interleave. Suite totals survive; "how many runs
+  proposed a candidate" does not. The harness warns.
+
 ### ⚠️ What is still unproven
 
 - **`LLM_PROVIDER=ollama` has never run** — no local Ollama. Note the *substance* of that M1
   criterion is proven: a run served by Gemini and one served by Groq differ only by config.
 - **OpenRouter's model ids in `model-tiers.ts` are unverified.** No key has been exercised
   against them. Gemini's and Groq's were both stale when checked, so assume these are too.
-- The second-hop rate is ~10% of multi-hop questions. It works; whether it *should* fire more
-  is an M6 measurement, not a prompt-tuning exercise to do now.
+- ~~The second-hop rate is ~10% of multi-hop questions.~~ Measured in M6 over all 59: **mean
+  1.46 hops**, and 96.6% of questions met their authored `minHops` floor. Whether extra hops
+  would *improve* answers is still unmeasured — that needs a run with `MAX_HOPS` varied, and
+  there is now a harness that can do it.
 - ~~A full live multi-hop run has not been watched end to end in the UI in one sitting.~~
   Done 2026-09-05: live, 11.7s, triage → plan → two parallel tools → 10 evidence → cited
   answer, with cost and the failover chain rendered and no console errors.
@@ -450,17 +541,22 @@ Two things M5 deliberately did not do:
   not a foreign one. Pointing `MCP_SERVERS` at a published Obsidian server, watching one run,
   and recording the GIF is the outstanding half of M5's first acceptance criterion.
 - **Nothing has exercised a connector that shares a source with the corpus in a live
-  multi-hop run.** The demo vault files as `notes`, so `notes_search` and
-  `obsidian_search_notes` can both answer a question; in the run that was watched the planner
-  chose the connector for *both* sub-questions. Whether it fans out across the two sensibly is
-  unmeasured, and it is an M6 question, not a prompt to tune now.
-- **The connector's calibrated `distance` has never been compared against corpus distances in
-  one answer.** Every observed connector run returned only connector evidence. The band was
-  chosen so that it would not dominate; nothing has yet tested whether it does.
+  multi-hop run**, and **the connector's calibrated `distance` has never been compared against
+  corpus distances in one answer.** Both were listed as M6 questions and both are *still* open,
+  because M6 answered a prior question first: the suite runs with **connectors off**, so that
+  every score stays attributable to the hand-authored answer key (`evals/README.md` argues it).
+  The harness has a `--connectors` flag for exactly this, and the measurement is now cheap to
+  take — `pnpm eval --connectors --category=multi-hop --limit=5` retrieves from both the vault
+  and the corpus and writes every distance into `results-latest.json`. It has not been run.
+- **The retrieval-distance sweep says the cutoff is not derivable, and that is a result rather
+  than a gap** — see "What the first eval run actually said" above. Worth re-running if the
+  embedding model changes, because the conclusion is model-specific like every other distance
+  in this project.
 
-`pnpm lint`, `pnpm build` and `pnpm test` pass clean (217 tests across 24 suites), as do
-`cd ui && pnpm lint`, `cd ui && pnpm typecheck` and `cd ui && pnpm test` (20 tests). There is
-still no CI; it arrives in M6.
+`pnpm lint`, `pnpm build` and `pnpm test` pass clean (**285 tests across 29 suites**), as do
+`cd ui && pnpm lint`, `cd ui && pnpm typecheck` and `cd ui && pnpm test` (20 tests), and
+`pnpm check:conventions`. CI arrived in M6: `.github/workflows/ci.yml` runs all of that with no
+API key, and `evals.yml` runs the nine-question eval subset against `evals/baseline.json`.
 
 ### Dead ends — things already tried that did not work
 
@@ -508,18 +604,35 @@ Recorded so nobody spends the hour again:
 ### Free-tier quota is a real constraint, not a footnote
 
 Gemini's free tier allows ~20 requests per window per model and **one agent run costs ~4 model
-calls** — 5 since M4.2 added extraction, and 6 when a follow-up also needs resolving. The two
-memory calls are both `fast`-tier and both skip themselves on the common path (`recall` makes
-no call on a session's first turn; `remember` makes none after an abstention), but budget for
-6 when estimating quota, not 4.
+calls** — 5 while M4.2's extraction ran unconditionally, and 6 when a follow-up also needs
+resolving. Both memory calls are `fast`-tier and both skip themselves on the common path:
+`recall` makes none on a session's first turn, and since M6 `remember` makes none unless the
+question mentions the person asking (see below). Budget for 5 when estimating quota — 6 if the
+conversation is a chain of follow-ups.
 
-> **Open, deliberately: should extraction be gated?** `remember` calls a model on every
-> answered run, and most corpus questions contain nothing to remember — the extractor's own
-> prompt says so. The obvious gate is to skip unless the question carries first-person markers
-> (`I` / `my` / `we`), since self-disclosure is the only thing extraction can act on and no
-> corpus question has any. **Not implemented on purpose.** It is a heuristic, and M6's
-> 59-question run measures the thing that decides it: how many runs propose a candidate at
-> all. Same discipline as `MEMORY_DEDUP_DISTANCE` — measure, then choose. See PLAN.md §5/M6.1.
+**M6 put a number on the ceiling.** A full agent pass over all 59 questions is ~295 calls plus
+59 judge calls, and that is enough to exhaust a day's free-tier budget on *both* configured
+providers — the single-shot baseline pass that followed it got `rate limit reached` from gemini
+and groq alike on 56 of 59 questions. This is why `evals/` caches per question and why a failed
+run is never cached.
+
+> **Settled in M6: extraction is gated.** This sat open through M4.2 and M5 as "measure, then
+> choose", waiting on the one number that decides it — how many of the 59 corpus runs propose a
+> candidate at all. The answer is **zero**, which is well past the bar §5/M6.1 set
+> ("if ~54 of 56 runs propose nothing, the gate is obviously right"). `mentionsSelf` in
+> `long-term-memory.service.ts` now skips extraction when the question carries no first-person
+> marker, and the run's budget drops from ~5 model calls to ~4 on every corpus-style question.
+>
+> It closes a security gap in the same change. `remember` extracts from the question *and the
+> answer*, and an answer derives from retrieved documents — the "narrow but not closed" channel
+> M5 wrote up. The question is not document-derived, so gating on it means attacker-authored
+> text can no longer reach durable memory at all.
+>
+> ⚠️ **Do not re-derive the decision from a post-gate run.** After the gate, `proposed: 0` over
+> a corpus suite is 0 by construction. That is what the `skippedNoSelfReference` funnel counter
+> is for: it keeps "the gate fired" and "the extractor found nothing" distinguishable, and the
+> committed results in `evals/results-latest.json` are the pre-gate measurement that justified
+> it.
 
 A burst of runs failed roughly half the time before failover existed. Two things
 learned the hard way, both worth not re-learning:
@@ -722,31 +835,56 @@ ui/app/page.tsx          the only stateful component
 
 ## 9. What to do next
 
-**M6 — evals, guardrails, CI gate** (PLAN.md §5). M5 is built and closed out, with one
-half-finished criterion noted below:
+**M6 is built.** The eval harness, five guardrails wired into the live pipeline, two CI
+workflows and a conventions gate. Read [`evals/README.md`](evals/README.md) before touching any
+of it — the two decisions the suite makes on your behalf (connectors off, memory reset between
+questions) are the kind that produce a plausible number while measuring the wrong thing, and
+both are argued there.
 
-- `McpHostService` connects, discovers and registers; **no file under `src/agent/nodes/`
-  changed** for it. Verify that yourself with `git diff -- src/agent/nodes/` rather than
-  taking this line's word for it.
-- `DEMO_MODE` (default on) serves a real in-process MCP server, so the credential-free demo
-  exercises the connector path instead of bypassing it.
-- The security section is built: allowlisted tool surface, schema-validated arguments,
-  untrusted fencing, three adversarial corpus documents, and a resistance test that stubs
-  every model to obey the injection.
+**Finish this first — it is one command and ~118 model calls.**
 
-**Outstanding from M5, and small:** no third-party MCP server has been connected. Point
-`MCP_SERVERS` at a published Obsidian server, watch one run, record the GIF. The code path is
-written and typechecked; it has just never met a foreign server.
+```bash
+pnpm eval --baseline=single-shot     # then the README delta table fills in
+pnpm eval:judge-agreement            # 20 calls; the other un-ticked criterion
+```
 
-**Two things M5 handed M6 specifically:**
+The agent half of the headline comparison is done and complete (59/59, 0 failed, 0 unjudged).
+The baseline half is one of **two** M6 acceptance criteria left un-ticked — the other is the
+judge-agreement figure, 20 calls against the same exhausted provider — and both are blocked on quota
+rather than on code: the agent pass exhausted the day's free tier on *both* providers. Failed
+runs are not cached, so re-running only pays for what is still missing. Once it lands, paste
+the merged table into the README — `renderTable` already emits agent / baseline / delta columns
+whenever both modes are present in `results-latest.json`.
 
-1. **Score injection resistance.** The `adversarial` question category has 3 questions, and
-   every payload carries the literal token `PULSE-EXFIL-OK` which must never appear in an
-   answer. That is a deterministic check, in the same spirit as citation validity.
-2. **Decide whether evals run with `DEMO_MODE` on.** The connector registers a fifth tool over
-   content the answer key does not cover, so a question could be answered correctly out of the
-   vault and score as unsupported. Both settings are defensible; the choice needs making
-   explicitly rather than inheriting the default.
+> ⚠️ **The 59 cached agent runs no longer match the fingerprint.** A code review found that
+> `RunFingerprint` omitted the registered guardrail set even though `EvalRun.guardrails` is
+> cached with each run, which meant adding or removing a guardrail left every cached run
+> scoring against the old set — while `baseline.json` carries a hard floor of 1.0 on
+> `guardrail:exfiltration`. Adding the field fixed that and invalidated the existing cache as
+> a one-off. **Nothing measured is lost**: `results-latest.json` is committed and the numbers
+> in this document and the README come from it. The cost is that a *re-run* of the agent pass
+> now pays full quota rather than replaying. If you only need the baseline half, that is
+> unaffected — it was never cached beyond the 3 runs that survived.
+>
+> The field carries names only, which catches a guardrail appearing or disappearing but not
+> one whose logic changed under the same name. `--fresh` is the answer for that case, and the
+> limitation is written into `cache.ts` rather than left to be rediscovered.
+
+**Then, in rough order of value:**
+
+1. **The seven uncited answers.** 43 of 50 non-abstaining runs cited anything at all. There is
+   now a number to move and a guardrail that flags each one; the synthesis prompt is the place
+   to look. Deliberately not touched in M6 — changing it would have invalidated the run it was
+   measured against.
+2. **Answer correctness is 61%** (96.6% with partial credit). Most misses are omissions on
+   multi-fact questions rather than wrong facts; `renderFailures` names them and
+   `evals/.cache/runs/agent/<id>.json` has the full answer and the judge's reasoning.
+3. **§9 deployment.** Still the last milestone. Two things must be decided before it, both in
+   the known-gaps list below: the open unauthenticated endpoint, and whether long-term memory
+   ships at all on a public instance.
+4. **Outstanding from M5, and small:** no third-party MCP server has been connected. Point
+   `MCP_SERVERS` at a published Obsidian server, watch one run, record the GIF. The stdio path
+   is written and typechecked; it has just never met a foreign server.
 
 Read the public trace before starting — it is still the fastest way to see the graph's actual
 shape, including the second hop:
@@ -810,13 +948,17 @@ https://apac.smith.langchain.com/public/14204394-ae03-4e47-afb0-8ada1c2dd735/r/0
 - ~~The trace store has no retention bound.~~ Fixed 2026-09-05: `TRACE_RETENTION_RUNS`
   (default 200) prunes oldest-first inside the same transaction as the insert, with
   `run_spans` following via `ON DELETE CASCADE`.
-- **CLAUDE.md's published `process.env` grep now returns hits.** `src/observability/
-  langsmith-tracing.service.ts` *writes* `LANGSMITH_*` back into the environment for
-  LangGraph and the LangSmith wrapper, which read it themselves; every value comes from
-  `AppConfigService` and every variable is declared in `env.schema.ts` first, so the rule (no
-  *reads* outside `src/config`) holds. `src/logger/logger.module.ts` reads `NODE_ENV`
-  directly and is a genuine long-standing hit. M6's CI gate needs a read-only pattern or an
-  explicit exemption for these two, or it lands red on day one.
+- ~~CLAUDE.md's published `process.env` grep now returns hits.~~ Closed in M6, and there
+  turned out to be **three** hits rather than the two predicted here.
+  `scripts/check-conventions.mjs` distinguishes writes from reads, which clears
+  `langsmith-tracing.service.ts` automatically — it only *writes* `LANGSMITH_*` back for
+  LangGraph and the LangSmith wrapper to read, from values that came out of
+  `AppConfigService`. Two genuine reads carry named exemptions: `logger/logger.module.ts`
+  (`NODE_ENV`, and the logger is constructed before `AppConfigService` exists) and
+  `integrations/mcp/mcp-host.service.ts`, which passes the ambient environment to an stdio
+  child process — it reads the environment as a value to forward, not a setting to act on.
+  That third hit was not on anyone's list. **The gate is green on day one**, and an exemption
+  naming a file that no longer exists is itself a violation, so the list cannot rot quietly.
 - `RETRIEVAL_DISTANCE_THRESHOLD` is configured but **not enforced** — it must be re-derived for
   the current embedding model first. See the comment in `src/config/env.schema.ts`.
 - `LLM_PROVIDER=ollama` is still unexercised, for lack of hardware.

@@ -1,0 +1,177 @@
+name: Evals
+
+# The eval gate (PLAN.md §5/M6.3).
+#
+# Split from ci.yml because this is the only workflow that spends money and quota.
+# Two things follow from that and shape everything below:
+#
+#   * **The PR job runs a nine-question subset, not all 59.** One agent run is ~5
+#     model calls and Gemini's free tier allows ~20 per window, so the full suite
+#     is ~470 calls and takes hours. The subset is committed in evals/ledger.ts
+#     (PR_SUBSET_QUESTION_IDS) and covers every question category.
+#   * **It skips itself when there is no key.** A fork PR gets no secrets, and a
+#     job that fails for that reason teaches contributors to ignore a red X. It
+#     reports "skipped, no key" instead.
+on:
+  pull_request:
+  schedule:
+    # Nightly, after most free-tier windows have reset.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  subset:
+    name: PR subset (9 questions)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      LLM_PROVIDER: gemini
+      LLM_FALLBACK_PROVIDERS: groq
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      EMBEDDING_PROVIDER: gemini
+      # The same key, under the name the embedding provider actually reads. It
+      # falls back to LLM_API_KEY, *not* to GEMINI_API_KEY — so setting only the
+      # per-provider chat key fails at boot with "EMBEDDING_API_KEY is required".
+      EMBEDDING_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      EMBEDDING_MODEL: gemini-embedding-001
+      EMBEDDING_DIMENSIONS: '768'
+      # The suite copies the live database to keep eval traffic out of the trace
+      # store; in CI there is no live database, so it indexes the corpus from
+      # scratch. That is one embedding batch per document and it is the reason
+      # this job is minutes rather than seconds.
+      DATABASE_PATH: ./database/ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for an API key
+        id: key
+        run: |
+          if [ -n "${GEMINI_API_KEY}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No GEMINI_API_KEY — the eval gate is skipped for this PR (forks get no secrets)."
+          fi
+
+      # No `version:` here on purpose — pnpm/action-setup@v4 resolves it from the
+      # `packageManager` field in package.json, which is the single place it is
+      # pinned. Passing neither is not a default, it is a hard error ("No pnpm
+      # version is specified") before install runs, which is how all four jobs in
+      # these two workflows landed red on their first invocation.
+      - uses: pnpm/action-setup@v4
+        if: steps.key.outputs.present == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.key.outputs.present == 'true'
+
+      - name: Run the subset
+        if: steps.key.outputs.present == 'true'
+        run: pnpm eval --subset=pr --database=./database/ci.db --out=./evals/results-ci.json
+
+      # Fails the build on a regression beyond tolerance, naming the metric and
+      # the delta. Floors (citation validity, injection resistance) have no
+      # tolerance at all — they are deterministic properties, not scores.
+      - name: Compare against the baseline
+        if: steps.key.outputs.present == 'true'
+        run: pnpm eval:compare --results=./evals/results-ci.json
+
+      - name: Upload results
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.event.pull_request.number }}
+          path: evals/results-ci.json
+          if-no-files-found: ignore
+
+  full:
+    name: Nightly full suite
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # A full agent pass plus its judges is ~350 model calls against a free tier
+    # that answers ~20 per window, so this is genuinely hours, not minutes.
+    timeout-minutes: 330
+    env:
+      LLM_PROVIDER: gemini
+      LLM_FALLBACK_PROVIDERS: groq
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      EMBEDDING_PROVIDER: gemini
+      # The same key, under the name the embedding provider actually reads. It
+      # falls back to LLM_API_KEY, *not* to GEMINI_API_KEY — so setting only the
+      # per-provider chat key fails at boot with "EMBEDDING_API_KEY is required".
+      EMBEDDING_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      EMBEDDING_MODEL: gemini-embedding-001
+      EMBEDDING_DIMENSIONS: '768'
+      DATABASE_PATH: ./database/ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for an API key
+        id: key
+        run: |
+          if [ -n "${GEMINI_API_KEY}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No GEMINI_API_KEY — the nightly suite is skipped."
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.key.outputs.present == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.key.outputs.present == 'true'
+
+      # Restoring the per-question cache is what makes a nightly run survivable:
+      # a pass killed by quota resumes from where it stopped rather than paying
+      # for every question again.
+      - name: Restore the per-question cache
+        if: steps.key.outputs.present == 'true'
+        uses: actions/cache@v4
+        with:
+          path: evals/.cache
+          key: evals-cache-${{ github.run_id }}
+          restore-keys: evals-cache-
+
+      - name: Agent
+        if: steps.key.outputs.present == 'true'
+        run: pnpm eval --database=./database/ci.db
+
+      - name: Single-shot baseline
+        if: steps.key.outputs.present == 'true'
+        run: pnpm eval --baseline=single-shot --database=./database/ci.db
+
+      - name: Judge agreement
+        if: steps.key.outputs.present == 'true'
+        run: pnpm eval:judge-agreement
+
+      - name: Archive the run
+        if: steps.key.outputs.present == 'true'
+        run: |
+          mkdir -p evals/history
+          cp evals/results-latest.json "evals/history/$(date -u +%Y-%m-%d).json"
+
+      - name: Upload results
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-nightly
+          path: |
+            evals/results-latest.json
+            evals/history
+          if-no-files-found: ignore

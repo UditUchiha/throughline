@@ -8,6 +8,8 @@ import {
   type LangGraphRunnableConfig,
 } from '@langchain/langgraph';
 import { AppConfigService } from '../config/app-config.service';
+import { GuardrailService } from '../guardrails/guardrail.service';
+import type { GuardrailVerdict, RunContext } from '../guardrails/guardrail';
 import { AGENT_CHECKPOINTER } from './checkpointing/agent-checkpointer';
 import { CHECKPOINT_REPOSITORY } from '../repositories/ports/tokens';
 import type { CheckpointRepository } from '../repositories/ports/checkpoint.repository';
@@ -43,6 +45,15 @@ export interface AgentRunResult {
   usage: { inputTokens: number; outputTokens: number };
   costUsd: number | null;
   latencyMs: number;
+  /**
+   * What the post-run guardrails concluded (PLAN.md §5/M6.2).
+   *
+   * Returned rather than only logged so the eval harness scores the verdicts the
+   * live pipeline actually produced, instead of re-deriving them from the answer
+   * text and slowly drifting from what ships. Not on the event contract: that is
+   * frozen and append-only, and no consumer renders these yet.
+   */
+  guardrails: GuardrailVerdict[];
 }
 
 /**
@@ -68,6 +79,7 @@ export class AgentGraphService {
     private readonly reflectNode: ReflectNode,
     private readonly synthesizeNode: SynthesizeNode,
     private readonly rememberNode: RememberNode,
+    private readonly guardrails: GuardrailService,
     private readonly traces: TraceCollector,
     @Inject(AGENT_CHECKPOINTER) private readonly checkpointer: BaseCheckpointSaver,
     @Inject(CHECKPOINT_REPOSITORY) private readonly checkpoints: CheckpointRepository,
@@ -258,6 +270,26 @@ export class AgentGraphService {
           `${answer.citations.length} citations, turn ${state.turns.length} of session ${sessionId}`,
       );
 
+      // After `run_finished`, so nothing about the guardrail sweep sits between a
+      // finished answer and the client reading it. The checks are deterministic
+      // and stateless — no model call, no I/O — and they report rather than
+      // intervene: an answer is never withheld or rewritten here. What they buy
+      // is that the same verdicts the eval suite scores are also produced on every
+      // live run, so the numbers describe the deployed system (PLAN.md §5/M6.2).
+      //
+      // Contained rather than left to the enclosing `catch`, and the placement is
+      // the whole reason. The client has already been sent `run_finished`; a
+      // guardrail that threw would fall through to the failure path, emit
+      // `run_failed` on the same stream, and record `status: 'failed'` with
+      // `answer: null` — destroying the trace of an answer that was successfully
+      // delivered, on behalf of a check whose only job is to describe it. A sweep
+      // that cannot run is a missing measurement, not a failed run.
+      const guardrails = await this.runGuardrails(runId, {
+        question: options.question,
+        answer,
+        evidence: state.evidence,
+      });
+
       await this.traces.record({
         runId,
         sessionId,
@@ -292,6 +324,7 @@ export class AgentGraphService {
         },
         costUsd: context.usage.costUsd,
         latencyMs,
+        guardrails,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -326,6 +359,25 @@ export class AgentGraphService {
       clearTimeout(timeout);
       options.signal?.removeEventListener('abort', abortFromCaller);
       await this.pruneSessions();
+    }
+  }
+
+  /**
+   * Runs the post-run guardrails, absorbing a failure rather than propagating it.
+   *
+   * See the call site for why this cannot be allowed to throw. The verdicts are
+   * returned on `AgentRunResult` and are deliberately *not* on the event contract,
+   * which stays frozen (PLAN.md §5/M6.2).
+   */
+  private async runGuardrails(runId: string, context: RunContext): Promise<GuardrailVerdict[]> {
+    try {
+      const verdicts = await this.guardrails.checkRun(context);
+      this.guardrails.report(runId, verdicts);
+      return verdicts;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Run ${runId}: the guardrail sweep failed and was skipped — ${message}`);
+      return [];
     }
   }
 

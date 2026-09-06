@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+/**
+ * Default location of the sqlite database.
+ *
+ * Exported because one thing outside the application needs it: the eval harness
+ * has to know which database it is copying *from* before Nest exists to tell it,
+ * and it had this string written out a second time. A default duplicated across
+ * a boundary desynchronises silently — the harness would go on isolating a file
+ * nobody uses, and index the corpus from scratch to do it.
+ */
+export const DEFAULT_DATABASE_PATH = './database/app.db';
+
 const llmProviderEnum = z.enum(['gemini', 'groq', 'openrouter', 'ollama']).default('gemini');
 const embeddingProviderEnum = z.enum(['gemini', 'ollama']).default('gemini');
 // Mirrors CorpusSource in src/common/types/knowledge.types.ts. Declared again rather
@@ -115,7 +126,7 @@ export const envSchema = z
     CHAT_MODEL: z.string().min(1).default('qwen3.5:9b'),
 
     // --- Paths ---
-    DATABASE_PATH: z.string().min(1).default('./database/app.db'),
+    DATABASE_PATH: z.string().min(1).default(DEFAULT_DATABASE_PATH),
     KNOWLEDGE_PATH: z.string().min(1).default('./corpus/generated'),
     PROMPTS_PATH: z.string().min(1).default('./prompts'),
     // Recorded agent runs, replayed over SSE for the §9 demo fallback and for

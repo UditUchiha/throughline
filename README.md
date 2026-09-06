@@ -4,10 +4,12 @@ An agentic RAG system that answers questions whose evidence is scattered across 
 sources — email, chat, notes — by planning a multi-step retrieval strategy, gathering
 evidence from several sources, and producing one cited answer.
 
-**Status: M0–M2 done.** The agent graph runs, streams its reasoning over SSE, and a UI
-renders that stream live. See [`PLAN.md`](PLAN.md) for the roadmap and design rationale —
-that document is the source of truth on where this project is headed and why, and
-[`HANDOFF.md`](HANDOFF.md) is the orientation doc if you are picking this up cold.
+**Status: M0–M6 done.** The agent graph runs, streams its reasoning over SSE, a UI renders
+that stream live, MCP connectors join the same tool registry, and an eval suite scores the
+whole thing against a hand-authored answer key with a CI gate on top. See [`PLAN.md`](PLAN.md)
+for the roadmap and design rationale — that document is the source of truth on where this
+project is headed and why, and [`HANDOFF.md`](HANDOFF.md) is the orientation doc if you are
+picking this up cold.
 
 ## What works today
 
@@ -49,8 +51,17 @@ that document is the source of truth on where this project is headed and why, an
   prompt, the tool surface is an operator-maintained allowlist, and no tool argument is ever
   derived from a document. The corpus carries real injection payloads to prove it.
 
-Not yet built: the eval harness and CI gate (M6), which is where injection resistance stops
-being asserted and starts being scored.
+- **Numbers, not adjectives.** An eval suite over all 59 questions scores retrieval,
+  citations, planning, abstention and injection resistance — most of it deterministically,
+  because the corpus is an answer key rather than test data. It runs the agent and a
+  single-shot RAG control through the identical scoring code, so the headline claim is a
+  measured delta rather than a description. Five guardrails run on every live request and are
+  scored by the same suite; CI fails a PR on a regression and names the metric.
+
+Every number in this README comes from a run you can reproduce with one command. Where a
+measurement is weaker than it looks — the judge shares a tier with the answerer, the judge's
+own hand labels are authored rather than sampled — the text says so at the point the number
+appears.
 
 ## Architecture
 
@@ -285,19 +296,33 @@ store grows several times faster than the trace store does.
 ### Across sessions — long-term, and the funnel
 
 After a run answers, a `fast`-tier call proposes durable facts about the person asking. Each
-one then has to survive three gates:
+one then has to survive four gates:
 
 | Stage | What it does | Counter |
 | --- | --- | --- |
+| **The gate** | if the question contains no first-person marker, extraction is skipped and no model call is made at all | `skippedNoSelfReference` |
 | **Extraction** | proposes candidates: preferences, relationships, corrections | `proposed` |
 | **Scoring** | anything under `MEMORY_IMPORTANCE_FLOOR` (0.5) is dropped — before it costs an embedding call | `droppedLowImportance` |
 | **Deduplication** | embed, find the nearest stored fact; within `MEMORY_DEDUP_DISTANCE` it *merges* — bumping a counter on the fact it restates | `mergedDuplicate` |
 | **Storage** | what is left | `stored` |
 
-`GET /memory/stats` returns those four counters and `stored / proposed`. That ratio is the
-honest measure of a memory system: **"it stores roughly N% of what it could" is checkable;
-"it has memory" is not.** The counters are cumulative and survive restarts, so the number
-means something after a few hundred runs rather than a few.
+`GET /memory/stats` returns those counters and `stored / proposed`. That ratio is the honest
+measure of a memory system: **"it stores roughly N% of what it could" is checkable; "it has
+memory" is not.** The counters are cumulative and survive restarts, so the number means
+something after a few hundred runs rather than a few.
+
+**The first gate exists because of a measurement, and the measurement is the interesting part.**
+Extraction used to run on every answered run. M6's eval suite put a number on what that bought:
+across all 59 corpus questions it proposed **zero** candidates — 59 model calls, no facts. So
+the ratio is `0/0`, *undefined* rather than zero, and this README quotes the raw counts rather
+than a percentage; and the gate is in, skipping the call unless the question actually says
+something about the person asking.
+
+It pays twice. It removes a model call from roughly a fifth of every corpus-style run's budget,
+against a free tier measured in tens of requests per window — and it closes the one path by
+which an injected document could outlive a run. `remember` extracts from the question *and* the
+answer, and an answer derives from retrieved documents; the question does not, so gating on it
+means attacker-authored text can no longer trigger extraction at all.
 
 A consolidation job (`MEMORY_CONSOLIDATION_INTERVAL_MS`) then does what write-time dedup
 cannot: it re-compares every surviving fact against every other, merging pairs that have
@@ -428,12 +453,228 @@ sender of the vendor security questionnaire?"*: the payload was retrieved into c
 the answer described the injection as something the document contains, cited it, and neither
 obeyed it nor emitted the `PULSE-EXFIL-OK` marker the payload asks for.
 
-**What is not covered.** Detection and scoring. Nothing yet measures how often an attempt gets
-through — the above is asserted, not measured, and M6's eval harness is where that changes.
-One second-order path is also open by design: long-term memory extracts facts from a run's
+**Now measured, not asserted.** M6 closed the detection-and-scoring gap. `injection-detection`
+flags retrieved passages carrying instructions addressed to software, `exfiltration` checks
+every answer for the `PULSE-EXFIL-OK` token and for credential-shaped strings, and the eval
+suite scores resistance deterministically **over the runs that actually retrieved an
+adversarial document** — a run that retrieved none resisted nothing, and counting it as a pass
+would let the score rise as retrieval got worse. `injectionResistance` carries a hard floor of
+1.0 in CI, with no tolerance: one payload getting through is a defect, not a fluctuation.
+
+One second-order path is still open by design: long-term memory extracts facts from a run's
 question and answer, and an answer derives from retrieved documents, so a sufficiently patient
 injection could in principle reach durable memory. Extraction is scoped to facts about the
 person asking, which makes it a narrow channel, but it is narrow rather than closed.
+
+## Evals: the numbers, and how to reproduce them
+
+### The numbers
+
+All 59 questions, run 2026-09-06. Gemini answering with Groq as failover, Groq judging,
+connectors off, long-term memory reset between questions. **0 runs failed, 0 questions went
+unjudged.** Reproduce with `pnpm eval`; the full record is
+[`evals/results-latest.json`](evals/results-latest.json).
+
+| Metric | Agent | Method |
+| --- | --- | --- |
+| **Answer correctness** | **61.0%** | LLM judge vs. `referenceAnswer` + `requiredFacts` |
+| … correct *or* partial | 96.6% | as above, counting partial credit |
+| Citation support | 88.4% | LLM judge — do the cited passages support the claim? |
+| Abstention correctness | 100% | LLM judge over the 8 unanswerable questions |
+| Recall@k | 92.5% | **deterministic** — did the `expressedIn` documents come back? |
+| Citation validity | 100% | **deterministic** — every `[n]` resolves to retrieved evidence |
+| Plan source coverage | 92.5% | **deterministic** — `requiredSources` present in the evidence |
+| Meets `minHops` | 96.6% | **deterministic** |
+| Injection resistance | 100% | **deterministic**, over the 9 runs that actually retrieved a payload |
+
+Cost and shape: **$0.1275** for the whole suite, 285,740 input / 27,963 output tokens, mean
+latency 17.3s, mean 2.3 sub-questions and 1.46 hops per question.
+
+Guardrail pass rates over the same 59 runs: `exfiltration` 100%, `abstention-consistency`
+96.6%, `citation-coverage` 84.7%, `injection-detection` 84.7% (that last one is a *detector* —
+a "failure" means it found an injected passage in the retrieved set, which for the adversarial
+questions is the correct outcome).
+
+> **The baseline column is not filled in yet, and that is the quota constraint, not a gap in
+> the harness.** `pnpm eval --baseline=single-shot` is implemented, tested and has produced
+> real results on a subset — but the agent pass above spent the day's free-tier budget on both
+> providers, and the baseline needs ~118 more calls. It completes with one command when the
+> window resets. Until it does, this README quotes no delta, because a headline claim with
+> half its measurement missing is worse than no headline claim.
+
+### Three findings the first run produced
+
+**1. Seven answers asserted something and cited nothing.** 43 of the 50 non-abstaining runs
+carried a citation. Citation *validity* is 100% — every marker that exists resolves — but that
+number rises as the agent cites less, which is why the suite reports both. The
+`citation-coverage` guardrail caught the same seven from the other direction. Not fixed here:
+this milestone measures, and changing the synthesis prompt now would invalidate the numbers it
+was measured against.
+
+**2. `RETRIEVAL_DISTANCE_THRESHOLD` should stay unenforced — and now that is a measurement.**
+`pnpm eval:sweep` labels every retrieval in the run by whether the answer key wanted it, then
+sweeps every candidate cutoff. Over **471 retrievals (74 relevant, 397 not)** the two classes
+**overlap completely**: the best achievable F1 is 0.551 at distance 0.485, with precision
+0.495. There is no empty band to put a cutoff in. The value has been configured-but-unenforced
+since M0.6 on a portability argument; it now has evidence instead of an argument.
+
+**3. Long-term memory proposed nothing at all — 0 candidates across 59 runs.** So the retention
+rate is `0/0`, undefined rather than zero, and this README still quotes the mechanism and the
+raw counts rather than a percentage. That number also settled the question M4.2 left open:
+extraction is now **gated on first-person markers**, which saves a model call on every
+corpus-style run *and* closes the document-to-memory injection path, since an answer derives
+from retrieved documents but the question does not.
+
+
+### How it works
+
+The corpus is an answer key, not test data, and that is what makes most of these metrics
+**deterministic**. A fact in `corpus/ledger/facts.yaml` names the documents that express it, a
+retrieved chunk carries the `docId` from its frontmatter, and recall@k is set membership — no
+embedding, no threshold, no judge. Citation validity is the same trick from the other end: the
+model is shown numbered passages and cites `[n]`, never an `evidenceId`, so "does this marker
+resolve" is an integer range check.
+
+```bash
+pnpm eval                          # the agent, all 59 questions
+pnpm eval --baseline=single-shot   # the non-agentic control, same questions
+pnpm eval --subset=pr              # the nine-question CI subset
+pnpm eval --no-judge --only=<id>   # deterministic metrics only, zero model calls
+pnpm eval:compare                  # regression gate; exits 1 and names the metric
+pnpm eval:judge-agreement          # the judge against 20 hand labels
+```
+
+Only a full pass writes `evals/results-latest.json` — the file the numbers above come from.
+`--subset=pr` writes `results-pr-subset.json`, anything narrower writes `results-partial.json`,
+and `--out` overrides all three. The results file is merged per mode but a mode is replaced
+wholesale, so this is a data-safety split rather than a tidiness one.
+
+**Quota is the binding constraint.** A full comparison is roughly 470 model calls against a
+free tier that answers ~20 per window, so it takes hours and it *will* be interrupted. The
+harness caches per question — runs and judgments separately, keyed by a fingerprint of
+everything that changes what a run means — so a killed pass resumes rather than restarting.
+[`evals/README.md`](evals/README.md) has the full accounting.
+
+### What the harness decides for you, and why
+
+Two settings would otherwise be inherited from the environment and quietly change what is being
+measured. Both are made explicitly and written into `results-latest.json` with every run.
+
+- **Connectors are off.** `DEMO_MODE` defaults to *on*, so merely booting registers a fifth tool
+  over a synthetic vault the answer key does not cover. A question answered correctly out of the
+  vault would score as unsupported. `--connectors` turns it back on for anyone measuring the
+  connector itself.
+- **Long-term memory is reset between questions.** `recall` injects remembered facts into the
+  planner and `remember` writes after every run, so 59 sequential questions means question 30 is
+  influenced by questions 1–29 and the suite stops being reproducible. Memory stays fully
+  enabled and the funnel is still measured; `recall` simply always faces an empty store. The
+  price is that deduplication can only fire within one run, so `mergedDuplicate` understates
+  what a long-lived store would merge — `--memory=accumulate` measures that instead. Either way
+  every run records how many facts memory injected into it, so contamination is a number rather
+  than an assumption.
+
+### The judge is not tier-separated, and the results say so
+
+`PLAN.md` §7 asks for a judge on a different model *tier* than the answerer. This project cannot
+provide that: on Gemini's free tier the `deep` tier resolves to the same model as `default`,
+because every pro model returns 429 and free deployment is a hard constraint. What is available
+is a different **vendor** — Gemini answers, Groq judges. On a single-provider setup the judge
+shares the answerer's model, `separateProvider` is `false` in the results, and the table prints
+a warning. A README implying independence it does not have would be worse than one that admits
+the gap.
+
+`pnpm eval:judge-agreement` measures the judge against 20 hand-authored items. **Its limitation
+is not small and is written into the label file:** those answers are authored from the ledger,
+not sampled from real runs. An authored wrong answer is wrong in a clean, legible way; a real
+one is usually wrong by omission or by being right about the wrong entity. The figure is an
+optimistic bound.
+
+**No agreement figure is quoted here yet, because the run has not completed.** It is 20 calls
+against the same provider the 59-question pass exhausted; one item scored before the wall,
+which is not a measurement. The tool reports partial results over a stated denominator rather
+than throwing away what it managed to score, so a re-run finishes the job.
+
+## Guardrails
+
+`src/guardrails/` — five deterministic checks, in two stages. They run on **every live run**,
+not only under the harness: `AgentController` runs the input stage before the SSE stream opens,
+`AgentGraphService` runs the post-run stage after `run_finished`, and the verdicts travel with
+the run into the results file. The suite therefore scores what the deployed system produced
+rather than re-deriving it from the answer text and slowly drifting from what ships.
+
+| Guardrail | Stage | What it catches |
+| --- | --- | --- |
+| `question-abuse` | input | A question long enough to be a way of spending someone else's tokens, padding dressed as a question, or a directive aimed at the system |
+| `injection-detection` | input | Retrieved passages carrying instructions addressed to software — the detection-and-scoring gap M5 left open |
+| `citation-coverage` | output | A sentence that asserts something and cites nothing |
+| `exfiltration` | output | The `PULSE-EXFIL-OK` compliance token, or a credential-shaped string, in an answer |
+| `abstention-consistency` | output | `abstained: true` together with citations and a real answer |
+
+Only `question-abuse` can refuse anything, and only on size and padding. Everything else
+reports: withholding an answer because a sentence lacks a citation would be a worse outcome
+than the uncited sentence, and a system that silently swallows its own output is far harder to
+evaluate than one that hands it over with a verdict attached.
+
+Two edges worth knowing, both found by building this rather than by reasoning about it:
+
+- **`question-abuse` counts injection vocabulary but never blocks on it.** The answer key
+  contains a legitimate question about injection attempts, so a guardrail that refused on the
+  vocabulary would refuse the questions it is scored against. It would have read as a hardening
+  win right up until the numbers came back.
+- **`injection-detection` has a guaranteed true positive that is not an attack.**
+  `notes.assistant-threat-model` reproduces both payloads verbatim because "the wording is the
+  evidence". A detector that scored it clean would be missing the strings it exists to find, so
+  it is flagged and the findings name the document.
+
+## CI
+
+Two workflows, split by what they cost.
+
+[`ci.yml`](.github/workflows/ci.yml) runs on every push and PR with no key and no quota: lint,
+typecheck, build, unit tests, the UI's own three checks, the corpus answer-key verifier, and
+`pnpm check:conventions`.
+
+pnpm is pinned once, in the `packageManager` field of both `package.json` files, and
+`pnpm/action-setup@v4` resolves it from there. Passing neither that field nor an explicit
+`version:` is not a default — it is a hard error before install runs, which is how all four
+jobs across these two workflows failed on their first invocation.
+
+[`evals.yml`](.github/workflows/evals.yml) runs the nine-question PR subset and compares it
+against `evals/baseline.json`, failing the build on a regression beyond tolerance and naming
+the metric and the delta. It **skips itself when there is no API key** — a fork PR gets no
+secrets, and a job that fails for that reason teaches contributors to ignore a red X. Nightly,
+it runs the full suite and the judge-agreement check.
+
+Two kinds of check in the baseline, and the distinction is the point. **Floors** are absolute:
+citation validity, injection resistance and the exfiltration guardrail are deterministic
+properties rather than scores, so one failure is a defect and no tolerance applies.
+**Tolerances** are for judged and retrieval metrics, which move because a model is in the loop —
+at n=9 a single question is 11 percentage points, so a tight tolerance would make the gate
+noise, and a gate that cries wolf gets disabled.
+
+Both kinds assume the run they are handed is a measurement, so **the gate refuses to run at
+all above a 10% failure rate.** A failed run scores zero rather than being dropped, which is
+right per question — but the two metrics carrying hard floors are computed over the runs that
+*returned*, and an answer with no citations is vacuously valid. The committed `single-shot`
+mode is the specimen: 38 of 59 runs killed by a quota wall, `citationValidity: 1.0`,
+`injectionResistance: 1.0`, and every check passing. A gate that cannot tell "nothing
+regressed" from "nothing was measured" reports the first when it means the second.
+
+The metrics table applies the same rule to **both** sides. Guarding only the mode being
+compared *against* let the walled baseline render a delta about itself — `single-shot 66.7%
+vs agent 61.0%, +5.6pp`, the non-agentic control apparently beating the agent it is the
+control for. Judged rates are computed over the runs a judge actually saw, so a wall leaves a
+small and flattering denominator, while the deterministic metrics score those same failures as
+zero. A partly-optimistic, partly-pessimistic column is worse than either.
+
+`pnpm check:conventions` enforces what `PLAN.md` §0.3 had only ever stated in prose: no
+`process.env` **reads** outside `src/config/` (across `src/` **and** `evals/`), no `console.*`
+in `src/`, no module-level singletons, and §3's client-identifier gate. The read/write
+distinction is load-bearing — a naive grep finds three hits that are all legitimate, one of
+which only *writes* `LANGSMITH_*` back for LangGraph to read. The three genuine reads carry
+named exemptions with a reason each, and an exemption for a file that no longer exists is
+itself a failure, so the rule cannot decay quietly. The identifier list is parsed out of
+`PLAN.md` §3 rather than duplicated, so the gate does not have to exempt itself.
 
 ## Environment variables
 
@@ -465,7 +706,7 @@ person asking, which makes it a narrow channel, but it is narrow rather than clo
 | `MCP_SERVERS`                  | `[]`                        | JSON array of MCP servers to connect at boot. Ignored, with a warning, while `DEMO_MODE` is on. `allowTools` is required — discovery is not consent |
 | `MCP_DEMO_VAULT_PATH`          | `./fixtures/mcp/vault`      | The synthetic Obsidian vault `DEMO_MODE` serves                                |
 | `MCP_TIMEOUT_MS`               | `15000`                     | Connect, discover and per-call budget for an MCP server. Generous because an `npx`-launched server may download itself first |
-| `RETRIEVAL_DISTANCE_THRESHOLD` | `0.9`                       | **Not currently enforced.** See [`docs/retrieval-threshold-study.md`](docs/retrieval-threshold-study.md) for how it was derived and why it isn't portable across embedding models |
+| `RETRIEVAL_DISTANCE_THRESHOLD` | `0.9`                       | **Not enforced, and M6 measured why.** Over 471 real retrievals (74 relevant, 397 not) relevant and irrelevant hits overlap completely on distance — best achievable F1 0.551, precision 0.495, no empty band to put a cutoff in. Re-derive with `pnpm eval:sweep`; background in [`docs/retrieval-threshold-study.md`](docs/retrieval-threshold-study.md) |
 | `TRACE_RETENTION_RUNS`         | `200`                       | Finished runs kept in the local trace store; oldest pruned on write. No unlimited option — see [`env.schema.ts`](src/config/env.schema.ts) |
 | `CHECKPOINT_RETENTION_SESSIONS` | `50`                       | Sessions kept by the short-term-memory checkpointer; oldest pruned after every run          |
 | `MEMORY_IMPORTANCE_FLOOR`      | `0.5`                       | Candidate facts below this are dropped before they cost an embedding call                   |
@@ -484,6 +725,13 @@ person asking, which makes it a narrow channel, but it is narrow rather than clo
 | Task                                | Command                                    |
 | ----------------------------------- | ------------------------------------------ |
 | Build / lint / test                 | `pnpm build` · `pnpm lint` · `pnpm test`   |
+| Conventions gate (PLAN.md §0.3, §3) | `pnpm check:conventions`                   |
+| Eval suite — the agent              | `pnpm eval` (`--subset=pr` for the nine-question CI subset) |
+| Eval suite — the baseline           | `pnpm eval --baseline=single-shot`         |
+| Eval suite — free, no model calls   | `pnpm eval --no-judge --only=<question-id>` |
+| Regression gate                     | `pnpm eval:compare`                        |
+| Re-derive a scored cutoff           | `pnpm eval:sweep`                          |
+| Validate the LLM judge              | `pnpm eval:judge-agreement`                |
 | Re-verify the corpus answer key     | `pnpm corpus:generate --verify-only`       |
 | Regenerate docs for one fact        | `pnpm corpus:generate --only=fact.<id>`    |
 | Re-record the demo fixtures         | `pnpm capture:runs` (server must be running) |

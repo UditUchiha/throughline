@@ -81,3 +81,53 @@ threshold to keep running silently.
 - The raw golden-set queries and results files (`golden-set.json`, `golden-set.de.json`,
   `results-*.json`) were removed from this repository because they were derived from a real
   customer's ticket history. Only the method and the aggregate statistics above are kept.
+
+---
+
+## 2026-09-06 — re-derived on this corpus, and the answer is "do not enforce it"
+
+The caveats above turned out to matter. M6's eval harness re-ran the method against the corpus
+this project actually ships, and it does **not** reproduce the clean gap.
+
+**Method.** `pnpm eval:sweep` reads a finished 59-question run out of
+`evals/results-latest.json`. Every retrieval in it is already labelled by the answer key — a
+chunk is *relevant* when its `docId` is one of the `expressedIn` documents of a fact the
+question requires — so no new labelling, no embedding calls, and no judge. It then sweeps every
+midpoint between adjacent observed distances.
+
+**Sample.** 471 retrievals across the questions that have expected documents: **74 relevant,
+397 not.** (Questions with no expected documents — the unanswerable set — are excluded: "not
+one of the expected documents" is not the same as "irrelevant" when nothing was expected.)
+
+**Result.**
+
+| | |
+| --- | --- |
+| Embedding model | `gemini-embedding-001` @ 768d |
+| Best achievable F1 | **0.551**, at distance **0.4854** |
+| …its precision / recall | 0.495 / 0.622 |
+| Separation band | **none — the two classes overlap** |
+
+At the best cutoff, half of what would be kept is irrelevant and nearly 40% of the relevant
+passages would be discarded. There is no interval containing no observations with the relevant
+retrievals on one side and the irrelevant on the other, which is exactly the structure the
+original study relied on.
+
+**Conclusion: `RETRIEVAL_DISTANCE_THRESHOLD` stays unenforced**, and the reason is now a
+measurement rather than a portability argument. `evals/metrics/threshold-sweep.ts` reports the
+separation band *before* the best F1 and prints this conclusion rather than the number, so a
+later reader cannot mistake "the best cutoff available" for "a derived cutoff".
+
+**Why the two studies disagree** is worth stating rather than glossing. The original was 30
+hand-labelled queries over a single-domain support knowledge base, where relevant and
+irrelevant were genuinely far apart in embedding space. This corpus is deliberately the
+opposite: one company, ten interlocking storylines, ~100 documents of pure noise written in the
+same voice about the same people and projects. A distractor here is *topically adjacent by
+construction* — that is the point of the `distractor` and `temporal` question categories — so
+the embedding distance between "the right Helios document" and "a different Helios document"
+is small. A corpus built to defeat naive similarity retrieval will not hand you a clean
+similarity cutoff.
+
+The same sweep function is what `docs/memory-dedup-threshold.md` used, and there it *did* find
+a clean band. Same method, same code, opposite answer — which is the argument for measuring
+each cutoff separately rather than carrying one over.

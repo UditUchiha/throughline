@@ -170,7 +170,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
     // Built from the known stage list rather than from the rows, so a stage that
     // has never fired reads 0 instead of vanishing from the response.
-    const funnel = { proposed: 0, droppedLowImportance: 0, mergedDuplicate: 0, stored: 0 };
+    const funnel = {
+      skippedNoSelfReference: 0,
+      proposed: 0,
+      droppedLowImportance: 0,
+      mergedDuplicate: 0,
+      stored: 0,
+    };
     for (const stage of MEMORY_FUNNEL_STAGES) {
       funnel[stage] = counts.get(stage) ?? 0;
     }

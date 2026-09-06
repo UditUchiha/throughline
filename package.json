@@ -1,9 +1,10 @@
 {
   "name": "throughline",
   "version": "0.0.1",
-  "description": "Agentic RAG over multi-source data — plans, retrieves across sources, and answers with citations.",
+  "description": "Agentic RAG over multi-source data \u2014 plans, retrieves across sources, and answers with citations.",
   "author": "",
   "private": true,
+  "packageManager": "pnpm@10.33.2",
   "license": "MIT",
   "scripts": {
     "build": "nest build",
@@ -12,14 +13,19 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,evals,scripts,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "corpus:generate": "node --env-file=.env -r ts-node/register scripts/corpus-generate.ts",
-    "capture:runs": "node --env-file=.env -r ts-node/register scripts/capture-runs.ts"
+    "capture:runs": "node --env-file=.env -r ts-node/register scripts/capture-runs.ts",
+    "eval": "node --env-file-if-exists=.env -r ts-node/register evals/run-evals.ts",
+    "eval:compare": "node -r ts-node/register evals/compare.ts",
+    "eval:sweep": "node -r ts-node/register evals/sweep.ts",
+    "eval:judge-agreement": "node --env-file-if-exists=.env -r ts-node/register evals/judge-agreement.ts",
+    "check:conventions": "node scripts/check-conventions.mjs"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",
@@ -82,15 +88,20 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": ".",
+    "roots": [
+      "<rootDir>/src",
+      "<rootDir>/evals"
+    ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.(t|j)s",
+      "evals/**/*.(t|j)s"
     ],
-    "coverageDirectory": "../coverage",
+    "coverageDirectory": "./coverage",
     "testEnvironment": "node"
   }
 }

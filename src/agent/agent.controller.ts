@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -12,6 +13,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { GuardrailService } from '../guardrails/guardrail.service';
 import { AgentGraphService } from './agent-graph.service';
 import { TRACE_REPOSITORY } from '../repositories/ports/tokens';
 import type { TraceRepository } from '../repositories/ports/trace.repository';
@@ -32,6 +34,7 @@ export class AgentController {
     @Inject(TRACE_REPOSITORY) private readonly traces: TraceRepository,
     private readonly replay: RunReplayService,
     private readonly examples: ExampleQuestionsService,
+    private readonly guardrails: GuardrailService,
   ) {}
 
   /**
@@ -54,6 +57,18 @@ export class AgentController {
     @Query('demo') demo: string | undefined,
     @Res() response: Response,
   ): Promise<void> {
+    // Before the stream opens, because once headers are sent a refusal can only
+    // be an in-band `run_failed` and the caller sees HTTP 200. The Zod DTO has
+    // already bounded the body; this is the abuse-shape check on top of it
+    // (PLAN.md §5/M6.2). Which verdicts actually refuse is the service's business,
+    // not this controller's — `blocked()` answers it without naming a guardrail.
+    const inputVerdicts = await this.guardrails.checkQuestion({ question: body.question });
+    this.guardrails.report('pre-run', inputVerdicts);
+    const blocking = this.guardrails.blocked(inputVerdicts);
+    if (blocking) {
+      throw new BadRequestException(blocking.detail);
+    }
+
     const write = this.openEventStream(response);
 
     // A visitor who closes the tab should stop costing model calls immediately.

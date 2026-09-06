@@ -1,0 +1,85 @@
+name: CI
+
+# The always-on gate: everything that needs no API key and no quota.
+# The eval suite is a separate workflow (evals.yml) because it needs both.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API — lint, build, test, conventions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here on purpose — pnpm/action-setup@v4 resolves it from the
+      # `packageManager` field in package.json, which is the single place it is
+      # pinned. Passing neither is not a default, it is a hard error ("No pnpm
+      # version is specified") before install runs, which is how all four jobs in
+      # these two workflows landed red on their first invocation.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `--fix` is deliberately dropped here: `pnpm lint` autofixes, which is right
+      # on a laptop and wrong in CI, where a job that silently repairs the code it
+      # is checking reports a pass for a state that was never committed.
+      - name: Lint
+        run: npx eslint "{src,evals,scripts,test}/**/*.ts"
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test
+
+      # PLAN.md §0.3 and §3 — the rules that were prose until M6. See
+      # scripts/check-conventions.mjs for why a naive process.env grep lands red.
+      - name: Conventions
+        run: pnpm check:conventions
+
+      # The answer key is the eval suite's denominator, so a ledger edit that
+      # breaks it has to fail here rather than surface as a mysteriously changed
+      # metric. No model calls; seconds.
+      - name: Corpus answer key
+        run: node -r ts-node/register scripts/corpus-generate.ts --verify-only
+
+  ui:
+    name: UI — lint, typecheck, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+      # This is what pins the hand-kept mirror of the event contract: the UI tests
+      # replay the real fixtures/runs/*.json through the reducer, so an event
+      # variant added on the API side without updating ui/lib/agent-events.ts
+      # fails here instead of in a browser.
+      - run: pnpm test
