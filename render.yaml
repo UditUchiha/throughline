@@ -92,6 +92,11 @@ services:
 
       # One platform proxy in front. At 0 every visitor would share one rate-limit
       # bucket; higher would let a caller forge X-Forwarded-For and escape it.
+      # Render actually sits behind a second, undeclared hop (Cloudflare) that
+      # this number cannot see — confirmed live 2026-09-20, see the comment on
+      # TRUST_PROXY_HOPS in src/config/env.schema.ts. The fix there is
+      # AskThrottlerGuard preferring Cloudflare's own CF-Connecting-IP header,
+      # not a bigger number here, so this stays '1'.
       - key: TRUST_PROXY_HOPS
         value: '1'
       - key: RATE_LIMIT_ENABLED

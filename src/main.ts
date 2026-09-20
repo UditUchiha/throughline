@@ -36,7 +36,11 @@ async function bootstrap() {
   //
   // A count rather than `true`, for that reason. `TRUST_PROXY_HOPS` defaults to
   // 1, which is right for a single platform proxy; set it to 0 when the API is
-  // reached directly.
+  // reached directly. Render is the one documented exception — it sits behind
+  // Cloudflare too, an extra hop this number does not see — and
+  // `AskThrottlerGuard.resolveTracker` covers that case with Cloudflare's own
+  // header rather than a bigger number here. See the comment on
+  // `TRUST_PROXY_HOPS` in env.schema.ts for what was actually observed.
   app.set('trust proxy', config.trustProxyHops);
 
   // Bound to every interface, not just loopback. A container's port mapping

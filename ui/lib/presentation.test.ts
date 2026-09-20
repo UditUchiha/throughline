@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { NEUTRAL_SOURCE, SOURCE_STYLES, sourceForTool, sourceStyle } from './presentation';
+import {
+  connectionCause,
+  NEUTRAL_SOURCE,
+  SOURCE_STYLES,
+  sourceForTool,
+  sourceStyle,
+} from './presentation';
 
 /**
  * These exist because of a specific near-miss in M5.
@@ -41,5 +47,41 @@ describe('sourceForTool', () => {
   // here. Neutral is correct: the evidence cards still carry the real source.
   it('leaves a connector tool neutral instead of guessing', () => {
     expect(sourceForTool('obsidian_search_notes')).toBeNull();
+  });
+});
+
+/**
+ * These exist because of a live near-miss, not a hypothetical.
+ *
+ * `ConnectionBanner` used to show one sentence — "runs on a free tier that
+ * sleeps after 15 idle minutes" — for every non-local failure. Confirmed live
+ * on 2026-09-20: a visitor who spent the 5-per-10-minute budget saw that
+ * sentence directly beside `ThrottlerException: Too Many Requests`, and the two
+ * contradict each other — the instance was warm the whole time. `status` is
+ * what a rate limit and a cold-start-shaped network failure can be told apart
+ * by, and this is the classification, pinned so the four causes cannot collapse
+ * back into one sentence by accident.
+ */
+describe('connectionCause', () => {
+  it('is local-dev whenever the API is local, regardless of status', () => {
+    expect(connectionCause(true, null)).toBe('local-dev');
+    expect(connectionCause(true, 429)).toBe('local-dev');
+    expect(connectionCause(true, 500)).toBe('local-dev');
+  });
+
+  it('is rate-limited on a 429 against a deployed API', () => {
+    expect(connectionCause(false, 429)).toBe('rate-limited');
+  });
+
+  it('is no-response when the request never got one back', () => {
+    // `null` is what a DNS failure, a refused connection or a blocked CORS
+    // preflight all look like to `fetch` — there was no status to report.
+    expect(connectionCause(false, null)).toBe('no-response');
+  });
+
+  it('is api-error for any other status, rather than guessing a cold start', () => {
+    expect(connectionCause(false, 400)).toBe('api-error');
+    expect(connectionCause(false, 500)).toBe('api-error');
+    expect(connectionCause(false, 404)).toBe('api-error');
   });
 });

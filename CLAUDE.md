@@ -204,6 +204,12 @@ same on every push. Six things to know before touching any of it:
   not "erased".
 - **`POST /agent/ask` is rate limited**, 5 questions / 10 min / IP, `?demo=1` exempt.
   `TRUST_PROXY_HOPS` is load-bearing: at 0 behind a proxy every visitor shares one bucket.
+  **Render adds an undeclared second hop** (Cloudflare, in front of Render's own edge) that no
+  value of `TRUST_PROXY_HOPS` accounts for — found live 2026-09-20 when a controlled sequence
+  of requests from one caller landed in visibly different buckets seconds apart.
+  `AskThrottlerGuard.resolveTracker` prefers Cloudflare's `CF-Connecting-IP` header (set and
+  overwritten at their edge, so a client cannot forge it) and falls back to the hop-counted
+  `request.ip` on every host that does not send it — Northflank, Cloud Run, a Docker Space.
 - **The quota fallback arms on `AllProvidersFailedError.quotaOnly` only.** A timeout or an
   unreachable provider is an outage, and replaying a fixture for one would present a broken
   system as a working demo. It diverts the *next* request, not the failing one, because

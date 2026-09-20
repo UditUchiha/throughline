@@ -128,6 +128,33 @@ export function relevanceFraction(distance: number): number {
   return Math.max(fraction, 0.04);
 }
 
+/** What `ConnectionBanner` is telling the visitor, and why. */
+export type ConnectionCause = 'local-dev' | 'rate-limited' | 'no-response' | 'api-error';
+
+/**
+ * Classifies a failed request into the one thing that actually decides what to
+ * tell the visitor, pulled out of `ConnectionBanner` so it is testable without a
+ * DOM — the same reason `sourceStyle` and `categoryLabel` live here rather than
+ * inline in a component.
+ *
+ * This exists because the component used to have no such classification: every
+ * non-local failure got one sentence — "runs on a free tier that sleeps" —
+ * regardless of what actually happened. Confirmed live on 2026-09-20: a visitor
+ * who spent the 5-per-10-minute budget saw that sentence sitting directly under
+ * `ThrottlerException: Too Many Requests`, contradicting it — the instance was
+ * warm the whole time. `status` is `null` only when the request never got a
+ * response at all (DNS, a refused connection, a CORS preflight the browser
+ * blocked); `local` takes precedence over both, since local dev advice ("start
+ * it with pnpm start:dev") is only ever right against a local API regardless of
+ * how the request failed.
+ */
+export function connectionCause(local: boolean, status: number | null): ConnectionCause {
+  if (local) return 'local-dev';
+  if (status === 429) return 'rate-limited';
+  if (status === null) return 'no-response';
+  return 'api-error';
+}
+
 export function formatCapturedAt(iso: string): string {
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) return iso;

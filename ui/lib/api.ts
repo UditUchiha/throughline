@@ -54,16 +54,42 @@ export interface DemoRun {
   eventCount: number;
 }
 
+/**
+ * An HTTP error response, carrying the status code past the point where the
+ * generic `Error` this used to throw would have discarded it.
+ *
+ * That discarding is what let a 429 render as "the API is asleep": every fetch
+ * in this file collapsed a non-2xx response into a bare `Error(message)`, so by
+ * the time `page.tsx` decided which banner to show, a rate limit, a validation
+ * failure and a genuinely down server were the same shape — a string. Confirmed
+ * live on 2026-09-20: a real visitor hitting the 5-per-10-minute limit saw
+ * "runs on a free tier that sleeps after 15 idle minutes", which was false in
+ * that moment and actively misleading about what to do next.
+ */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export async function fetchExamples(signal?: AbortSignal): Promise<ExampleQuestion[]> {
   const response = await fetch(`${API_URL}/agent/examples`, { signal });
-  if (!response.ok) throw new Error(`GET /agent/examples returned ${response.status}`);
+  if (!response.ok) {
+    throw new ApiError(response.status, await describeHttpError(response));
+  }
   const body = (await response.json()) as { questions?: ExampleQuestion[] };
   return body.questions ?? [];
 }
 
 export async function fetchDemoRuns(signal?: AbortSignal): Promise<DemoRun[]> {
   const response = await fetch(`${API_URL}/agent/demo`, { signal });
-  if (!response.ok) throw new Error(`GET /agent/demo returned ${response.status}`);
+  if (!response.ok) {
+    throw new ApiError(response.status, await describeHttpError(response));
+  }
   const body = (await response.json()) as { runs?: DemoRun[] };
   return body.runs ?? [];
 }
@@ -89,9 +115,11 @@ export async function* askStream(
   });
 
   if (!response.ok) {
-    // The API validates the body before opening the stream, so a non-2xx here is
-    // a plain JSON error and there is no event stream to read.
-    throw new Error(await describeHttpError(response));
+    // The API validates the body — and the rate limiter runs — before opening
+    // the stream, so a non-2xx here is a plain JSON error and there is no event
+    // stream to read. `response.status` is what lets the caller tell a 429 from
+    // everything else.
+    throw new ApiError(response.status, await describeHttpError(response));
   }
   if (!response.body) throw new Error('The API returned no response body.');
 

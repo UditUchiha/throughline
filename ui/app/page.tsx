@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   API_URL,
+  ApiError,
   askStream,
   fetchDemoRuns,
   fetchExamples,
@@ -46,7 +47,7 @@ export default function Page() {
   const [question, setQuestion] = useState('');
   const [demo, setDemo] = useState(false);
   const [view, setView] = useState<RunView>(emptyRun);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<ConnectionFailure | null>(null);
   /**
    * The first fetch is taking long enough that the API is probably asleep.
    *
@@ -147,7 +148,7 @@ export default function Page() {
         // An aborted fetch is this effect being cleaned up, not a failure — the
         // one rejection that must never surface as an error to the visitor.
         if (isAbort(error)) return;
-        setConnectionError(describe(error));
+        setConnectionError(describeConnectionFailure(error));
       });
 
     return () => {
@@ -222,7 +223,7 @@ export default function Page() {
           );
         } catch (error: unknown) {
           if (isAbort(error) || controller.signal.aborted) return;
-          setConnectionError(describe(error));
+          setConnectionError(describeConnectionFailure(error));
           setView((current) => ({ ...current, status: 'failed' }));
         }
       })();
@@ -276,7 +277,9 @@ export default function Page() {
         />
 
         {waking && !connectionError && <ColdStartBanner apiUrl={API_URL} />}
-        {connectionError && <ConnectionBanner error={connectionError} apiUrl={API_URL} />}
+        {connectionError && (
+          <ConnectionBanner error={connectionError.message} status={connectionError.status} apiUrl={API_URL} />
+        )}
         {view.replay && <ReplayBanner replay={view.replay} />}
         {view.error && !connectionError && <FailureBanner error={view.error} demo={demo} />}
 
@@ -438,11 +441,28 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-function describe(error: unknown): string {
+/**
+ * A connection failure, kept as a struct rather than two states that have to
+ * change together. `status` is what `ConnectionBanner` needs to stop guessing at
+ * a cause: `null` is a genuine network-layer failure (fetch never got a
+ * response), a number is exactly what the API said.
+ */
+interface ConnectionFailure {
+  message: string;
+  status: number | null;
+}
+
+function describeConnectionFailure(error: unknown): ConnectionFailure {
+  if (error instanceof ApiError) return { message: error.message, status: error.status };
+
   if (error instanceof TypeError) {
     // `fetch` reports every network-layer failure — DNS, refused connection, a
-    // CORS preflight the browser blocked — as an opaque TypeError.
-    return `${error.message} (the API may be down, or blocking this origin)`;
+    // CORS preflight the browser blocked — as an opaque TypeError, and none of
+    // them carries a status: there was no response to have one.
+    return {
+      message: `${error.message} (the API may be down, or blocking this origin)`,
+      status: null,
+    };
   }
-  return error instanceof Error ? error.message : String(error);
+  return { message: error instanceof Error ? error.message : String(error), status: null };
 }

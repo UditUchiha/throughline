@@ -24,6 +24,40 @@ export function isDemoReplay(demo: string | undefined): boolean {
 }
 
 /**
+ * The client identity a request counts against.
+ *
+ * Prefers Cloudflare's `CF-Connecting-IP` over the hop-counted `request.ip`,
+ * when it is present. This exists because of a live finding, not a hypothetical:
+ * verified against the deployed instance on 2026-09-20, Render's edge sits
+ * behind Cloudflare — an additional proxy hop `TRUST_PROXY_HOPS` was never told
+ * about — and `request.ip` did not resolve to a stable per-visitor address. A
+ * controlled sequence of requests from one caller, one second apart, landed in
+ * visibly different buckets: a limit of 5 was exhausted in three requests, and
+ * the very next request reset to a fresh-looking one. A caller that can get a
+ * new identity by chance is one the limiter is not actually rationing.
+ *
+ * `CF-Connecting-IP` is set — and overwritten — at Cloudflare's edge, so a
+ * client cannot forge it as long as Cloudflare is the real ingress, which is
+ * the deployed topology's actual shape regardless of what `TRUST_PROXY_HOPS`
+ * is told. Checking for the header's presence rather than the hostname or an
+ * env flag is what keeps this host-neutral: Northflank, Cloud Run and a Docker
+ * Space have no Cloudflare in front and never send it, so they fall through to
+ * `request.ip` exactly as before, unchanged.
+ *
+ * Exported, and kept separate from `getTracker`, for the same reason
+ * `isDemoReplay` is: `ThrottlerGuard`'s protected methods are awkward to call
+ * directly in a test, and this is the part actually worth pinning.
+ */
+export function resolveTracker(request: Pick<Request, 'ip' | 'headers'>): string {
+  const cfConnectingIp = request.headers['cf-connecting-ip'];
+  if (typeof cfConnectingIp === 'string' && cfConnectingIp.length > 0) return cfConnectingIp;
+
+  // `req.ip` is undefined only when the socket has already gone; bucketing
+  // those together is harmless because such a request is not going to run.
+  return request.ip ?? 'unknown';
+}
+
+/**
  * The rate limit on `POST /agent/ask` (PLAN.md §9).
  *
  * The endpoint is unauthenticated and CORS is open by design — `main.ts` argues
@@ -45,10 +79,12 @@ export function isDemoReplay(demo: string | undefined): boolean {
  * exists because a limit expressed as an enormous number still reads like a
  * limit to whoever finds it next, and local development wants no limit at all.
  *
- * The tracker is the client IP, which is only correct because `main.ts` sets
- * Express's `trust proxy` from `TRUST_PROXY_HOPS`. Behind a platform proxy with
- * that unset, every request arrives from the proxy and the whole internet shares
- * one bucket — the limiter would work perfectly and lock everyone out together.
+ * The tracker prefers Cloudflare's `CF-Connecting-IP` header and falls back to
+ * `request.ip`, which is only correct because `main.ts` sets Express's
+ * `trust proxy` from `TRUST_PROXY_HOPS`. Behind a platform proxy with that
+ * unset, every request arrives from the proxy and the whole internet shares one
+ * bucket — the limiter would work perfectly and lock everyone out together. See
+ * {@link resolveTracker} for why the header takes precedence.
  */
 @Injectable()
 export class AskThrottlerGuard extends ThrottlerGuard {
@@ -77,8 +113,6 @@ export class AskThrottlerGuard extends ThrottlerGuard {
   }
 
   protected getTracker(request: Request): Promise<string> {
-    // `req.ip` is undefined only when the socket has already gone; bucketing
-    // those together is harmless because such a request is not going to run.
-    return Promise.resolve(request.ip ?? 'unknown');
+    return Promise.resolve(resolveTracker(request));
   }
 }

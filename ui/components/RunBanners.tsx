@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReplayInfo } from '@/lib/run-state';
-import { formatCapturedAt } from '@/lib/presentation';
+import { connectionCause, formatCapturedAt } from '@/lib/presentation';
 
 /**
  * The replay banner.
@@ -86,22 +86,59 @@ export function ColdStartBanner({ apiUrl }: { apiUrl: string }) {
   );
 }
 
-/** Distinct from a failed run: the API itself was unreachable or rejected the request. */
-export function ConnectionBanner({ error, apiUrl }: { error: string; apiUrl: string }) {
+/**
+ * Distinct from a failed run: the API itself was unreachable or rejected the
+ * request before a run ever started.
+ *
+ * The footer used to say one thing regardless of *why* — "runs on a free tier
+ * that sleeps" — for every non-local failure, including a 429. Confirmed live on
+ * 2026-09-20: a visitor who spent the rate-limit budget saw that sentence next
+ * to the literal text `ThrottlerException: Too Many Requests`, which contradicts
+ * it — the instance was warm the whole time. `status` is what tells the three
+ * causes apart: a rate limit, a genuine network failure (`null` — there was no
+ * response to have a status), and anything else the API returned.
+ */
+export function ConnectionBanner({
+  error,
+  apiUrl,
+  status,
+}: {
+  error: string;
+  apiUrl: string;
+  status: number | null;
+}) {
+  const cause = connectionCause(isLocalApi(apiUrl), status);
+
   return (
     <div className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3">
-      <p className="text-sm font-semibold text-danger">Could not reach the API.</p>
+      <p className="text-sm font-semibold text-danger">
+        {cause === 'rate-limited' ? 'Rate limit reached.' : 'Could not reach the API.'}
+      </p>
       <p className="mt-1 font-mono text-xs leading-relaxed break-words text-ink-300">{error}</p>
-      {isLocalApi(apiUrl) ? (
+      {cause === 'local-dev' && (
         <p className="mt-2 text-xs text-ink-500">
           Expecting it at <span className="font-mono text-ink-300">{apiUrl}</span>. Start it with{' '}
           <span className="font-mono text-ink-300">pnpm start:dev</span>, or point{' '}
           <span className="font-mono text-ink-300">NEXT_PUBLIC_API_URL</span> somewhere else.
         </p>
-      ) : (
+      )}
+      {cause === 'rate-limited' && (
+        <p className="mt-2 text-xs text-ink-500">
+          This demo allows 5 questions every 10 minutes per visitor, to keep the free-tier quota
+          available for everyone trying it. Check{' '}
+          <span className="font-medium text-ink-300">Replay a recorded run</span> to keep
+          exploring for free, or wait a few minutes and ask again.
+        </p>
+      )}
+      {cause === 'no-response' && (
         <p className="mt-2 text-xs text-ink-500">
           <span className="font-mono text-ink-300">{apiUrl}</span> runs on a free tier that sleeps
           after 15 idle minutes. A reload usually catches it once it has woken.
+        </p>
+      )}
+      {cause === 'api-error' && (
+        <p className="mt-2 text-xs text-ink-500">
+          The API responded with an error rather than an answer — see the message above.
         </p>
       )}
     </div>

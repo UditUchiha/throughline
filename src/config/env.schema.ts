@@ -418,8 +418,22 @@ export const envSchema = z
      * larger than the real chain lets a caller mint a fresh identity per request
      * and the limit evaporates.
      *
-     * 1 is right for a single platform proxy (Render, Northflank, Cloud Run, HF
-     * Spaces). Set 0 when the API is reached directly.
+     * 1 is right for a single platform proxy — Northflank, Cloud Run, a Docker
+     * Space. Set 0 when the API is reached directly.
+     *
+     * **Render is the documented exception, found live rather than reasoned
+     * about.** Render's edge sits behind Cloudflare, which is a second,
+     * undeclared hop this number cannot see — `1` here still under-counts it.
+     * Verified 2026-09-20: a controlled sequence of requests from one caller
+     * landed in visibly different rate-limit buckets seconds apart, because
+     * `request.ip` was not resolving to a stable per-visitor address. The fix
+     * is not a bigger number — an untrusted client can forge `X-Forwarded-For`,
+     * so over-counting hops lets a caller mint a fresh identity per request and
+     * the limit evaporates the other way. `AskThrottlerGuard`'s
+     * `resolveTracker` prefers Cloudflare's `CF-Connecting-IP` header instead,
+     * which Cloudflare sets and overwrites at its own edge, and falls back to
+     * this hop-counted value everywhere that header is absent. `1` stays
+     * correct for every other host in the table.
      */
     TRUST_PROXY_HOPS: z.coerce.number().int().nonnegative().default(1),
 
