@@ -18,8 +18,15 @@ import {
  * First reindex writes the identity; subsequent boots compare it. A mismatch
  * means every stored vector is garbage for the current model, so we fail fast
  * with an actionable message rather than returning silently wrong results.
+ *
+ * Exported for its test. This guard has been wrong twice — once comparing two
+ * differently-built strings so it refused an index it had just built correctly
+ * (M1.2), and once reading the identity off config while the indexer wrote it off
+ * the provider, which broke `precomputed` builds (§9). Both were boot failures,
+ * which is the most expensive place to find one, so the three cases below are
+ * pinned rather than reasoned about.
  */
-function checkIndexIdentity(db: Database.Database, currentId: string, logger: Logger): void {
+export function checkIndexIdentity(db: Database.Database, currentId: string, logger: Logger): void {
   const row = db
     .prepare<[], { value: string }>(`SELECT value FROM index_meta WHERE key = 'embedding_identity'`)
     .get();
