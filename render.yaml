@@ -33,9 +33,18 @@
 # ## Deploying
 #
 #   1. Render → New → Blueprint → point at this repo.
-#   2. Supply GEMINI_API_KEY, GROQ_API_KEY and EMBEDDING_API_KEY when prompted.
-#      EMBEDDING_API_KEY is the Gemini key again, under the name the embedding
-#      provider reads — it falls back to LLM_API_KEY, *not* to GEMINI_API_KEY.
+#   2. Supply GEMINI_API_KEY and GROQ_API_KEY when prompted. EMBEDDING_API_KEY is
+#      now optional: the embedding provider falls back to GEMINI_API_KEY, so the
+#      Gemini key no longer has to be supplied twice under two names. Set it only
+#      to embed with a *different* credential from the one that answers.
+#      (Until 2026-09-20 it fell back to LLM_API_KEY and not to GEMINI_API_KEY,
+#      which is how this deployment shipped with an invalid embedding key and
+#      failed every retrieval while chat kept working.)
+#
+#      GEMINI_API_KEY accepts several comma-separated keys, tried in order. Free
+#      tier quota is per credential, so that is the cheapest headroom there is —
+#      and it keeps answers on one model rather than falling through to Groq,
+#      which §11 measured returning fewer citations.
 #   3. Set the UI's NEXT_PUBLIC_API_URL to the resulting service URL.
 #
 # The image itself is host-neutral: `PORT` comes from the environment, so the

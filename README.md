@@ -1,8 +1,30 @@
 # throughline
 
-An agentic RAG system that answers questions whose evidence is scattered across multiple
-sources — email, chat, notes — by planning a multi-step retrieval strategy, gathering
-evidence from several sources, and producing one cited answer.
+I work across Gmail, Slack, Obsidian and a helpdesk. Answering something as ordinary as
+*"why did the launch slip, and who signed off on the new date?"* means opening three tools and
+stitching the answer together myself. The cause is in a chat thread; the approval is in an
+email; **no single document contains both** — so ordinary RAG, which retrieves the nearest
+passage and stops, cannot answer it at all.
+
+throughline is an agent that plans the decomposition, fans out across sources in parallel,
+notices what it is still missing, retrieves again, and cites the passage behind every claim.
+
+Here is that shape of question, asked against a synthetic corpus of mail, chat and notes:
+
+> **Who owns the workstream that caused the Helios delay, and what exactly went wrong
+> technically?**
+>
+> Amara Chen owns the billing migration workstream that caused the Helios delay **[2]**.
+> Technically, the failure was traced to a connection-pool exhaustion bug in the new Stripe
+> usage-metering service under concurrent writes **[1]** — the service kept opening
+> connections without releasing them during heavy transaction bursts, starving the main
+> database threads.
+
+The owner is named in a chat thread (`chat.eng-helios.2026-02-18`). The root cause is written
+up in a note (`notes.helios-loadtest-postmortem`). Neither document contains the other half,
+so retrieving the single nearest passage cannot answer it — the agent searches both sources in
+one parallel round and cites each half back to the document it came from. That is the landing
+page's one-click example, and it replays with no model calls.
 
 **Status: M0–M6 done.** The agent graph runs, streams its reasoning over SSE, a UI renders
 that stream live, MCP connectors join the same tool registry, and an eval suite scores the

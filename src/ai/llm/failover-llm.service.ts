@@ -47,7 +47,7 @@ export class FailoverLlmService implements LlmService {
         'No LLM provider is configured. Set LLM_PROVIDER and its API key (or LLM_API_KEY).',
       );
     }
-    const names = providers.map((p) => p.provider);
+    const names = providers.map((p) => p.label);
     this.logger.log(
       names.length > 1 ? `LLM chain: ${names.join(' → ')}` : `LLM provider: ${names[0]}`,
     );
@@ -64,19 +64,19 @@ export class FailoverLlmService implements LlmService {
       try {
         const result = await provider.chat(messages, options);
         if (index > 0) {
-          this.logger.log(`Served by fallback provider "${provider.provider}"`);
+          this.logger.log(`Served by fallback provider "${provider.label}"`);
         }
         return result;
       } catch (error) {
         if (!isRetryableOnAnotherProvider(error)) throw error;
 
         if (!(error instanceof QuotaExceededError)) quotaOnly = false;
-        failures.push(`${provider.provider}: ${errorMessage(error)}`);
+        failures.push(`${provider.label}: ${errorMessage(error)}`);
         const next = this.providers[index + 1];
         this.logger.warn(
           next
-            ? `Provider "${provider.provider}" unavailable, falling back to "${next.provider}"`
-            : `Provider "${provider.provider}" unavailable and no fallback remains`,
+            ? `Provider "${provider.label}" unavailable, falling back to "${next.label}"`
+            : `Provider "${provider.label}" unavailable and no fallback remains`,
         );
       }
     }

@@ -88,7 +88,7 @@ describe('applyEvent over recorded runs', () => {
   });
 
   it('keeps parallel tool calls overlapping on the timeline', () => {
-    const view = replay('multihop-helios-delay');
+    const view = replay('multihop-helios-owner-cause');
     const window = retrievalWindow(view);
 
     expect(window).not.toBeNull();

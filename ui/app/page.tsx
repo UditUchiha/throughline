@@ -22,6 +22,7 @@ import { AskBar } from '@/components/AskBar';
 import { AnswerPanel } from '@/components/AnswerPanel';
 import { EvidencePanel } from '@/components/EvidencePanel';
 import { ExampleQuestions } from '@/components/ExampleQuestions';
+import { HeroQuestion, heroIsReplayable, isHeroQuestion } from '@/components/HeroQuestion';
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { PlanPanel } from '@/components/PlanPanel';
 import {
@@ -171,6 +172,21 @@ export default function Page() {
 
   const elapsedMs = view.startedAtMs === null ? 0 : Math.max(nowMs - view.startedAtMs, 0);
 
+  // In replay mode the hero question can only be offered if a fixture exists for
+  // it; live, the API can answer anything in the corpus. Rendering it regardless
+  // would put a button that 404s on the most prominent surface of the page.
+  const heroAvailable = !demo || heroIsReplayable(demoRuns);
+
+  // The hero is rendered above these, so leaving it in the list below shows the
+  // same question twice. Filtered rather than hidden in the child, because the
+  // child has no idea a hero exists.
+  const otherDemoRuns = heroAvailable
+    ? demoRuns.filter((run) => !isHeroQuestion(run.question))
+    : demoRuns;
+  const otherExamples = heroAvailable
+    ? examples.filter((example) => !isHeroQuestion(example.question))
+    : examples;
+
   // Any in-flight run is abandoned when the tab goes away, so a closed tab stops
   // costing model calls the moment the server sees the socket close.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -284,9 +300,21 @@ export default function Page() {
         {view.error && !connectionError && <FailureBanner error={view.error} demo={demo} />}
 
         {view.status === 'idle' && (
+          <HeroQuestion
+            demo={demo}
+            disabled={busy}
+            available={heroAvailable}
+            onPick={(picked) => {
+              setQuestion(picked);
+              ask(picked);
+            }}
+          />
+        )}
+
+        {view.status === 'idle' && (
           <ExampleQuestions
-            examples={examples}
-            demoRuns={demoRuns}
+            examples={otherExamples}
+            demoRuns={otherDemoRuns}
             demo={demo}
             disabled={busy}
             onPick={(picked) => {
@@ -388,8 +416,10 @@ function Header({
           throughline
         </h1>
         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-500">
-          Agentic RAG over scattered work data. It plans a retrieval strategy, fans out across mail,
-          chat and notes, checks its own gaps, and cites the passage behind every claim.
+          Some answers are not in any one document — the cause is in a chat thread, the sign-off is
+          in an email. Ordinary RAG retrieves the nearest passage and stops. This agent plans the
+          decomposition, searches mail, chat and notes in parallel, notices what it is still
+          missing, and cites the passage behind every claim.
         </p>
       </div>
 
@@ -429,7 +459,7 @@ function Footer() {
   return (
     <footer className="mt-10 border-t border-white/8 pt-4 font-mono text-[0.65rem] leading-relaxed text-ink-700">
       <p>
-        Corpus: &quot;Lumen Labs&quot;, 169 synthetic documents (82 mail / 47 chat / 40 notes) built
+        Corpus: &quot;Lumen Labs&quot;, 172 synthetic documents (83 mail / 48 chat / 41 notes) built
         from a hand-authored fact ledger. No real data, no sign-in.
       </p>
       <p className="mt-1">API: {API_URL}</p>

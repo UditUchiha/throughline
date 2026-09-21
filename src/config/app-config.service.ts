@@ -44,17 +44,26 @@ export class AppConfigService {
   }
 
   /**
-   * The key for one provider in the chain.
+   * Every key configured for one provider, in the order they should be tried.
+   *
+   * A provider's key variable may hold **several comma-separated keys** — the
+   * same idiom `LLM_FALLBACK_PROVIDERS` already uses. This exists because a free
+   * tier's quota is per *credential*, not per vendor: a second Gemini key is
+   * strictly better headroom than falling through to a different vendor, whose
+   * model answers differently. §11 measured exactly that — Groq returning 2
+   * citations where Gemini returned 5 on the same multi-hop question — so a
+   * chain that reaches Groq early does not just get slower, it measures
+   * something else.
    *
    * Each provider prefers its own `<PROVIDER>_API_KEY`. `LLM_API_KEY` is only
    * accepted for the *primary* provider — it is that provider's key, and handing
    * it to a fallback hop would authenticate to the wrong service with a
-   * confusing 401. Returns undefined when nothing is configured, which is how the
-   * chain builder knows to skip a provider rather than fail the boot.
+   * confusing 401. Returns an empty array when nothing is configured, which is
+   * how the chain builder knows to skip a provider rather than fail the boot.
    */
-  llmApiKeyFor(provider: LlmProvider): string | undefined {
+  llmApiKeysFor(provider: LlmProvider): string[] {
     // Ollama is local and unauthenticated; the SDK still wants a non-empty string.
-    if (provider === 'ollama') return 'ollama';
+    if (provider === 'ollama') return ['ollama'];
 
     const own =
       provider === 'gemini'
@@ -63,8 +72,18 @@ export class AppConfigService {
           ? this.configService.get('GROQ_API_KEY', { infer: true })
           : this.configService.get('OPENROUTER_API_KEY', { infer: true });
 
-    if (own) return own;
-    return provider === this.llmProvider ? this.llmApiKey : undefined;
+    const raw = own || (provider === this.llmProvider ? this.llmApiKey : undefined);
+    return splitKeys(raw);
+  }
+
+  /**
+   * The first key for one provider — what callers that can only hold one want.
+   *
+   * Kept as the single-key accessor rather than removed, because the embedding
+   * provider authenticates one client and has no chain to fall through.
+   */
+  llmApiKeyFor(provider: LlmProvider): string | undefined {
+    return this.llmApiKeysFor(provider)[0];
   }
 
   // --- Embedding ---
@@ -73,8 +92,16 @@ export class AppConfigService {
     return this.configService.get('EMBEDDING_PROVIDER', { infer: true });
   }
 
+  /**
+   * The embedding key — first only, because one client authenticates once.
+   *
+   * Split like the LLM keys so a comma-separated value set here does not
+   * authenticate with the literal string "key-a,key-b". Embeddings have no
+   * failover chain to spend the rest on; surviving a quota wall here is
+   * `EMBEDDING_PROVIDER=precomputed` at build time, not a second credential.
+   */
   get embeddingApiKey(): string | undefined {
-    return this.configService.get('EMBEDDING_API_KEY', { infer: true });
+    return splitKeys(this.configService.get('EMBEDDING_API_KEY', { infer: true }))[0];
   }
 
   get embeddingModel(): string {
@@ -257,4 +284,19 @@ export class AppConfigService {
   get langsmithEndpoint(): string {
     return this.configService.get('LANGSMITH_ENDPOINT', { infer: true });
   }
+}
+
+/**
+ * Splits a key variable that may carry more than one credential.
+ *
+ * Tolerant of trailing separators and stray whitespace because these arrive by
+ * being pasted into a dashboard field, not typed into a file. API keys do not
+ * contain commas, so this cannot split one in half.
+ */
+function splitKeys(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((key) => key.trim())
+    .filter(Boolean);
 }

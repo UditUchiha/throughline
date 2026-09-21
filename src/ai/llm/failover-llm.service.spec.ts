@@ -21,6 +21,7 @@ function stubProvider(
 ): OpenAICompatibleProvider & { calls: number } {
   const stub = {
     provider: name,
+    label: name,
     calls: 0,
     chat() {
       stub.calls++;

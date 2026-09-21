@@ -11,10 +11,15 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions: number;
 
   constructor(private readonly config: AppConfigService) {
-    const apiKey = this.config.embeddingApiKey ?? this.config.llmApiKey;
+    // `llmApiKeyFor` rather than the raw `llmApiKey`: it takes the first of a
+    // comma-separated list, so a multi-key chat chain cannot hand this client an
+    // unusable concatenation — and it consults GEMINI_API_KEY, which this
+    // previously did not, so the Gemini key no longer has to be supplied twice
+    // under two names to make retrieval work.
+    const apiKey = this.config.embeddingApiKey ?? this.config.llmApiKeyFor('gemini');
     if (!apiKey) {
       throw new Error(
-        'EMBEDDING_API_KEY (or LLM_API_KEY as fallback) is required when EMBEDDING_PROVIDER=gemini',
+        'EMBEDDING_API_KEY (or GEMINI_API_KEY / LLM_API_KEY as fallback) is required when EMBEDDING_PROVIDER=gemini',
       );
     }
 

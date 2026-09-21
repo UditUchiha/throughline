@@ -107,6 +107,15 @@ export const envSchema = z
     // Per-provider keys, so a fallback chain can authenticate to each hop. The
     // provider actually in use falls back to LLM_API_KEY when its own key is absent,
     // which keeps a single-provider setup a one-variable affair.
+    //
+    // Any of these may hold **several comma-separated keys**, tried left to right,
+    // the same idiom LLM_FALLBACK_PROVIDERS uses. Quota on a free tier is per
+    // credential, so `GEMINI_API_KEY=a,b` is two hops of the same model rather
+    // than one hop and then a different vendor — which matters for measurement,
+    // not just headroom: §11 found Groq returning 2 citations where Gemini
+    // returned 5 on the same question. Left as a plain string here on purpose;
+    // splitting belongs to AppConfigService, and the schema stays the place that
+    // says a variable exists rather than what it decomposes into.
     GEMINI_API_KEY: z.string().optional(),
     GROQ_API_KEY: z.string().optional(),
     OPENROUTER_API_KEY: z.string().optional(),

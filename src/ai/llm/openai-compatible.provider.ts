@@ -47,6 +47,17 @@ export class OpenAICompatibleProvider implements LlmService {
     private readonly useModelOverrides: boolean,
     private readonly usage: UsageService,
     tracing: LangSmithTracing,
+    /**
+     * How this hop is named in logs. Defaults to the provider, and differs from
+     * it only when one provider contributes several hops — a chain holding two
+     * Gemini keys would otherwise log "provider gemini unavailable, falling back
+     * to gemini" and leave no way to tell which credential was exhausted.
+     *
+     * Deliberately separate from `provider`, which stays the enum: cost lookup
+     * (`usage.costOf`) and the `provider` field on every `ChatResult` are keyed
+     * by vendor, and a label like "gemini#2" would break both.
+     */
+    readonly label: string = provider,
   ) {
     const baseURL = resolveBaseUrl(provider, this.config.ollamaUrl);
 

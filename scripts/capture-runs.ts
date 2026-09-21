@@ -41,10 +41,24 @@ const TARGETS: CaptureTarget[] = [
     label: 'Simple — triage skips planning entirely',
   },
   {
-    slug: 'multihop-helios-delay',
-    question: 'Why did the Helios launch slip, and who approved the new date?',
-    label: 'Multi-hop — plans and fans out across two sources',
+    // The landing page's hero (ui/components/HeroQuestion.tsx), which is why this
+    // one is verified rather than merely scored: both halves come from the first
+    // parallel fan-out, so it does not depend on the second hop that fires on
+    // roughly three of thirty multi-hop questions. See that file for the two
+    // candidates rejected for answering only half the question live.
+    slug: 'multihop-helios-owner-cause',
+    question:
+      'Who owns the workstream that caused the Helios delay, and what exactly went wrong technically?',
+    label: 'Multi-hop — one answer from chat and notes together',
   },
+  // 'Why did the Helios launch slip, and who approved the new date?' was here and
+  // is deliberately gone. The corpus holds two distinct Helios delays — the billing
+  // migration failing load testing at 4x volume (the slip), and a separate one-day
+  // TLS certificate slip at ship time — and retrieval lands on the second. The eval
+  // suite scores that question `partial` for exactly this reason, with the judge
+  // naming the contradiction, and a fresh capture reproduced it. Do not re-add it as
+  // a demo until retrieval can tell the two apart; a one-click example that answers
+  // confidently and wrongly is worse than one fewer example.
   {
     slug: 'second-hop-board-outcomes',
     question: 'What did the board approve and what were the outcomes?',
