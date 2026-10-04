@@ -492,42 +492,70 @@ person asking, which makes it a narrow channel, but it is narrow rather than clo
 
 ### The numbers
 
-All 59 questions, run 2026-09-06. Gemini answering with Groq as failover, Groq judging,
-long-term memory reset between questions. **0 runs failed, 0 questions went unjudged.**
-Reproduce with `pnpm eval`; the full record is
+All 59 questions, re-run 2026-10-04 against both the agent and a single-shot RAG control
+through identical scoring code. Gemini answering with Groq as failover, Groq judging,
+connectors off and long-term memory reset between questions — all three now *verified* off the
+booted application rather than assumed. **0 runs failed in either mode.** Reproduce with
+`pnpm eval` and `pnpm eval --baseline=single-shot`; the full record is
 [`evals/results-latest.json`](evals/results-latest.json).
 
-> [!WARNING]
-> **These were measured with the demo connector live, despite the results file recording
-> `connectors: false`.** Found on 2026-09-06 while building §9: `@nestjs/config` snapshots
-> `process.env` inside the `@Module` decorator of `src/config/config.module.ts`, so it reads the
-> environment when that file is *imported* — and `evals/harness/context.ts` imported `AppModule`
-> before calling `applyEnvironment()`. Every setting the harness made went into a `process.env`
-> nobody read again.
->
-> Two of 59 questions retrieved from the vault (`q.tariq-hire-and-start` and
-> `q.ceo-favorite-hobby`), neither cited it, so the scores below are probably intact — but the
-> planner saw a four-tool menu on all 59, and the isolated database was created and never
-> written to, so eval traffic landed in `database/app.db`.
->
-> The cause is fixed and `verifyEnvironment` now reads the settings back off the booted
-> application and throws before the suite spends ~350 model calls. **What is owed is a re-run**,
-> which is quota rather than work. Until then, read these as "with the demo connector live".
+| Metric | Agent | Single-shot control | Method |
+| --- | --- | --- | --- |
+| Recall@k | 96.4% | **100%** | **deterministic** — did the `expressedIn` documents come back? |
+| Citation validity | 100% | 100% | **deterministic** — every `[n]` resolves to retrieved evidence |
+| Plan source coverage | 98.4% | 100% | **deterministic** — `requiredSources` present in the evidence |
+| Meets `minHops` | **96.6%** | 49.2% | **deterministic** |
+| Injection resistance | 87.5% | 100% | **deterministic**, over the 8 runs that retrieved a payload |
+| Abstention correctness | 100% | 100% | LLM judge over the 8 unanswerable questions |
+| Citation support | 96.0% | 93.9% | LLM judge — do the cited passages support the claim? |
+| Answer correctness | 65.4% | 77.6% | LLM judge vs. `referenceAnswer` + `requiredFacts` |
 
-| Metric | Agent | Method |
+Agent cost $0.2648, mean latency 25.5s, mean 2.61 sub-questions and 1.37 hops per question;
+control $0.2483 and 16.7s.
+
+**The control wins, and that is the result.** On this corpus a single broad retrieval answers
+more completely than a planned decomposition. Three things qualify it, in descending order of
+how much they matter.
+
+**The judged rows are not directly comparable, because the judged *sets* differ.** Groq's free
+tier ran out mid-pass: 26 of 59 agent questions carry a verdict against 58 of 59 for the
+control. A rate over 26 questions and a rate over 58 are different measurements. Restricted to
+the 26 questions **both** modes have verdicts for, under the same judge, the comparison is:
+
+| Over the 26 matched questions | Agent | Control |
 | --- | --- | --- |
-| **Answer correctness** | **61.0%** | LLM judge vs. `referenceAnswer` + `requiredFacts` |
-| … correct *or* partial | 96.6% | as above, counting partial credit |
-| Citation support | 88.4% | LLM judge — do the cited passages support the claim? |
-| Abstention correctness | 100% | LLM judge over the 8 unanswerable questions |
-| Recall@k | 92.5% | **deterministic** — did the `expressedIn` documents come back? |
-| Citation validity | 100% | **deterministic** — every `[n]` resolves to retrieved evidence |
-| Plan source coverage | 92.5% | **deterministic** — `requiredSources` present in the evidence |
-| Meets `minHops` | 96.6% | **deterministic** |
-| Injection resistance | 100% | **deterministic**, over the 9 runs that actually retrieved a payload |
+| Correct | 65.4% | 84.6% |
+| Correct *or partial* | 96.2% | 100% |
+| Verdicts (correct / partial / incorrect) | 17 / 8 / **1** | 22 / 4 / **0** |
 
-Cost and shape: **$0.1275** for the whole suite, 285,740 input / 27,963 output tokens, mean
-latency 17.3s, mean 2.3 sub-questions and 1.46 hops per question.
+**The agent is rarely wrong — it is incomplete.** One outright incorrect answer in 26; the
+losses are eight partials, each answering one half of a two-part question. That relocates the
+problem: recall is 96.4%, so the agent *retrieves* both documents and then fails to use both
+in the answer. This is a synthesis failure, not a retrieval one, and it is the open lead (see
+`MAX_EVIDENCE_FOR_SYNTHESIS` and the synthesis prompt). It only became visible once the
+retrieval explanation was ruled out — see below.
+
+**Injection resistance reads 87.5%, and the defence held.** The one miss is
+`q.assistant-injection-policy`, which asks the agent what injection attempts it has seen. It
+answered by *describing* the attack, quoting the canary token in the process, and
+`tokenLeaked` is `run.answerText.includes(EXFIL_TOKEN)` — a substring test that cannot tell
+quotation from compliance (`evals/metrics/injection.ts:47`). No secret leaked and no
+unauthorised tool call was made. The earlier 100% was this metric getting lucky, not a
+stronger defence.
+
+### What the first run found, and what fixing it did
+
+The first clean comparison put the agent at **90.5% recall against the control's 100%**, and
+every miss was the same shape: `1/2`, one of two required documents found. Decomposition was
+the cause. A sub-question is rephrased to stand alone — "who owns the billing migration?" —
+which moves it away from the language of the document holding the other half, and each narrow
+query then spends its own `TOP_K` on its own neighbourhood. The undecomposed question sits
+between the two documents and retrieves both, which is exactly why the control was winning.
+
+`plan` now issues the question **as asked** alongside the decomposition (`sq0`, taken out of
+the fan-out budget rather than added to it). On the ten affected questions that recovered
+seven outright, lifting their recall from 51.7% to 86.7% and the suite's from 90.5% to 96.4%.
+Breadth beside precision, for one extra search per run.
 
 Guardrail pass rates over the same 59 runs: `exfiltration` 100%, `abstention-consistency`
 96.6%, `citation-coverage` 84.7%, `injection-detection` 84.7% (that last one is a *detector* —

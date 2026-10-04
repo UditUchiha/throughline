@@ -435,28 +435,67 @@ Two things M5 deliberately did not do:
   which makes the channel narrow, but narrow is not closed. Written up here rather than
   half-fixed.
 
-### What the first eval run actually said (M6)
+### What the eval actually says (M6, re-run 2026-10-04)
 
-All 59 questions, 2026-09-06, Gemini answering with Groq failover, Groq judging, connectors
-off, long-term memory reset between questions. **0 runs failed, 0 questions went unjudged.**
-$0.13, 286k input tokens, mean 17.3s per question.
+All 59 questions against **both** the agent and a single-shot RAG control, through identical
+scoring code. Gemini answering with Groq failover, Groq judging, connectors off and long-term
+memory reset — now *verified* off the booted application, not assumed, after the isolation bug
+that invalidated the 2026-09-06 figures. **0 runs failed in either mode.** Agent $0.2648 and
+25.5s mean; control $0.2483 and 16.7s.
 
-| | |
-| --- | --- |
-| Answer correctness (judge) | **61.0%** — 96.6% counting partial credit |
-| Citation support (judge) | 88.4% |
-| Abstention correctness (judge) | 100% over the 8 unanswerable questions |
-| Recall@k (deterministic) | 92.5% |
-| Citation validity (deterministic) | 100% |
-| Injection resistance (deterministic) | 100%, over the **9** runs that actually retrieved a payload |
-| Plan source coverage | 92.5% · meets `minHops` 96.6% |
+| | agent | control |
+| --- | --- | --- |
+| Recall@k (deterministic) | 96.4% | **100%** |
+| Citation validity (deterministic) | 100% | 100% |
+| Plan source coverage (deterministic) | 98.4% | 100% |
+| Meets `minHops` (deterministic) | **96.6%** | 49.2% |
+| Injection resistance (deterministic) | 87.5% | 100% |
+| Abstention correctness (judge) | 100% | 100% |
+| Citation support (judge) | 96.0% | 93.9% |
+| Answer correctness (judge) | 65.4% | 77.6% |
 
-**The baseline column is missing and the reason matters.** The agent pass spent the day's
-free-tier budget on *both* configured providers; `--baseline=single-shot` then came back
-`rate limit reached` from gemini and groq alike on 56 of 59 questions. A second attempt later
-on 2026-09-06 got **21 of 59** through before both providers' *daily* caps went; those 21 are
-cached and failed runs never are, so the next attempt pays for the remaining 38 only. PLAN.md
-§5/M6's README-delta criterion is left **un-ticked** rather than reworded — see the note there.
+**The control wins. That is the result, not a reporting error** — and it is the second time
+this project has had to tell those apart, so the distinction is worth stating. Read it with
+three qualifications:
+
+**The judged sets differ.** Groq's free tier ran dry mid-pass: 26 of 59 agent verdicts against
+58 of 59 for the control. A rate over 26 is not a rate over 58. Restricted to the 26 questions
+*both* modes have verdicts for, same judge:
+
+| over the matched 26 | agent | control |
+| --- | --- | --- |
+| correct | 65.4% | 84.6% |
+| correct *or partial* | 96.2% | 100% |
+| correct / partial / incorrect | 17 / 8 / **1** | 22 / 4 / **0** |
+
+**The agent is rarely wrong — it is incomplete.** One incorrect answer in 26; the losses are
+eight partials, each answering one half of a two-part question. Recall is 96.4%, so it
+*retrieves* both documents and then fails to use both. That is a synthesis failure, not a
+retrieval one — look at `MAX_EVIDENCE_FOR_SYNTHESIS` and the synthesis prompt before anything
+else. It only became legible once retrieval was ruled out, which took the fix below.
+
+**Injection resistance is 87.5% and the defence held.** The miss is
+`q.assistant-injection-policy`, which asks what injection attempts have been seen; the agent
+described the attack and quoted the canary doing so. `tokenLeaked` is
+`answerText.includes(EXFIL_TOKEN)` (`evals/metrics/injection.ts:47`) and cannot tell quotation
+from compliance. No secret leaked, no unauthorised tool call. The previous 100% was this
+metric getting lucky.
+
+#### The retrieval finding, and the fix
+
+The first clean comparison had the agent at **90.5% recall against 100%**, and every miss was
+shaped `1/2` — one of two required documents. Decomposition was the cause: a sub-question
+rephrased to stand alone drifts from the language of the document holding the other half, and
+each narrow query spends its own `TOP_K` in its own neighbourhood, while the undecomposed
+question sits between both and retrieves both.
+
+`plan` now issues the question **as asked** beside the decomposition (`sq0`, taken out of the
+fan-out budget rather than added to it). Seven of the ten affected questions recovered
+outright; their recall went 51.7% → 86.7% and the suite's 90.5% → 96.4%.
+
+> **A node change does not alter `RunFingerprint`** — it carries the tool menu, not behaviour —
+> so a cached run from before such a change is reused silently and hides it. Measuring one
+> needs `--fresh`, or surgery on the cache to drop only the affected entries.
 
 > That second attempt earned its keep in an unexpected way: it is what surfaced the fact that
 > `renderTable` guarded only the mode being compared *against*, never the mode doing the
@@ -975,13 +1014,19 @@ whenever both modes are present in `results-latest.json`.
 
 **Then, in rough order of value:**
 
-1. **The seven uncited answers.** 43 of 50 non-abstaining runs cited anything at all. There is
-   now a number to move and a guardrail that flags each one; the synthesis prompt is the place
-   to look. Deliberately not touched in M6 — changing it would have invalidated the run it was
-   measured against.
-2. **Answer correctness is 61%** (96.6% with partial credit). Most misses are omissions on
-   multi-fact questions rather than wrong facts; `renderFailures` names them and
-   `evals/.cache/runs/agent/<id>.json` has the full answer and the judge's reasoning.
+1. **Synthesis drops half the evidence, and this is now the top lead.** Recall is 96.4% while
+   the agent still loses to the control on completeness: eight of 26 matched verdicts are
+   `partial`, each answering one half of a two-part question, against just **one** outright
+   wrong. The documents come back and the answer does not use them. Start at
+   `MAX_EVIDENCE_FOR_SYNTHESIS` (12) and the synthesis prompt. This was invisible while
+   retrieval was also failing — the `sq0` breadth fix is what exposed it.
+2. **Finish the judged set.** Only 26 of 59 agent questions carry a verdict; the control has
+   58. Groq's free tier is the binding constraint, not the harness — verdicts cache per
+   question, so repeated passes fill in. `EVAL_JUDGE_PROVIDER` moves the judge to another
+   vendor *without* touching `answerProvider` (and therefore without invalidating cached runs),
+   and `EVAL_JUDGE_TIMEOUT_MS` bounds a judge that queues rather than refuses. Both sides must
+   end on the **same** judge or the delta measures the grader: an OpenRouter-judged agent
+   against a Groq-judged control read −19.0pp, the same runs on one judge read −12.2pp.
 3. ~~**§9 deployment.**~~ Built 2026-09-06 — see the section above. Both decisions it was
    waiting on are made: the endpoint is rate limited, and long-term memory does not ship
    publicly. **What is left is pushing it to a host**, which needs a Render account rather than

@@ -225,23 +225,43 @@ the same tool registry, and an eval suite scores the whole thing against the ans
 CI gate on top. §9 deployment is built — image, blueprint, rate limit, quota fallback — and
 **what remains is pushing it to a host, which is an account action rather than a code one.**
 
-⚠️ **M6's numbers were measured with the demo connector live while recording
-`connectors: false`.** §9 found the cause: `@nestjs/config` snapshots `process.env` inside the
-`@Module` decorator, so `evals/harness/context.ts` importing `AppModule` before calling
-`applyEnvironment()` meant none of its settings applied — the isolated database was created and
-never written to either. Fixed, with a `verifyEnvironment` check that throws rather than trusting
-the flags; **the numbers below are owed a re-run**, which is quota rather than work.
+**M6's numbers, re-run 2026-10-04 against a single-shot control through identical scoring**
+(see README and HANDOFF). The environment-isolation bug that invalidated the 2026-09-06 figures
+is fixed and `verifyEnvironment` now reads the settings back off the booted application, so
+`connectors: false` is a checked fact rather than a claim. **0 runs failed in either mode.**
 
-M6's numbers, over all 59 questions (see README and HANDOFF): answer correctness **61.0%**
-(96.6% with partial credit), citation support 88.4%, abstention correctness 100%, recall@k
-92.5%, citation validity 100%, injection resistance 100% over the 9 runs that retrieved a
-payload. 0 failed, 0 unjudged, $0.13.
+| | agent | control |
+|---|---|---|
+| recall@k · plan coverage · citation validity | 96.4% · 98.4% · 100% | 100% · 100% · 100% |
+| meets minHops | **96.6%** | 49.2% |
+| injection resistance | 87.5% | 100% |
+| abstention · citation support | 100% · 96.0% | 100% · 93.9% |
+| answer correctness | 65.4% | 77.6% |
 
-⚠️ **One M6 acceptance criterion is outstanding:** the agent-vs-baseline delta. The agent pass
-exhausted the day's free tier on both providers, so `pnpm eval --baseline=single-shot` returned
-`rate limit reached` for 56 of 59. A second attempt on 2026-09-06 got **21 of 59** through
-before both providers' *daily* caps went; those 21 are cached, failed runs are not, so the next
-attempt pays only for the remaining 38. PLAN.md §5/M6 leaves that box **un-ticked** on purpose.
+**The control wins and that is the finding** — on this corpus one broad retrieval answers more
+completely than a decomposition. Three things anyone quoting these must carry with them:
+
+- **The judged sets differ** — Groq's free tier ran dry at 26 of 59 agent verdicts against 58
+  of 59 for the control, and a rate over 26 is not a rate over 58. Over the 26 questions *both*
+  modes have verdicts for, under the same judge: agent 65.4% / control 84.6% strict, 96.2% /
+  100% with partial credit, verdicts 17-8-**1** against 22-4-**0**.
+- **The agent is rarely wrong, it is incomplete.** One incorrect answer in 26; the losses are
+  eight partials answering one half of a two-part question. With recall at 96.4% it *retrieves*
+  both documents and fails to use both — a synthesis problem, not retrieval, and the open lead.
+- **Injection resistance is 87.5% with the defence intact.** The miss is
+  `q.assistant-injection-policy` quoting the canary while *describing* the attack it was asked
+  about; `tokenLeaked` is a substring test that cannot tell quotation from compliance
+  (`evals/metrics/injection.ts:47`). The earlier 100% was luck, not a stronger defence.
+
+**The first clean comparison put the agent at 90.5% recall**, every miss shaped `1/2`.
+Decomposition was the cause: a sub-question rephrased to stand alone drifts from the language
+of the document holding the other half. `plan` now issues the question **as asked** beside the
+decomposition (`sq0`, taken *out of* the fan-out budget), which recovered seven of ten affected
+questions and lifted recall to 96.4%. Node changes like that one do **not** alter
+`RunFingerprint`, so measuring one needs `--fresh` or the cache silently hides it.
+
+**The agent-vs-baseline delta is now measured**, closing M6's outstanding criterion — with the
+judged-coverage caveat above recorded rather than smoothed over.
 
 Six things about `evals/` and `src/guardrails/` worth knowing before touching either — the
 full argument is in `evals/README.md`:

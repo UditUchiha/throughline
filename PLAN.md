@@ -33,7 +33,7 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M4.1 — short-term memory** | ✅ Done | LangGraph checkpointer (`@langchain/langgraph-checkpoint-sqlite`) keyed by `sessionId` over the existing connection; a `recall` node ahead of `triage` resolves follow-ups against the checkpointed turns. `sessionId` appended to `run_started` and plumbed through the UI, which had never sent one. `memory_read` / `memory_written` now carry real refs. Retention bounded by `CHECKPOINT_RETENTION_SESSIONS`. |
 | **M4.2 — long-term memory** | ✅ Done | `LongTermMemoryService` — extract → score → dedup → store, with funnel counters at `GET /memory/stats`; consolidation job merges near-duplicates and forgets facts unused past `MEMORY_TTL_DAYS`. Facts get their own table + vec index rather than living in `chunks` (see the deviation below). Verified live across sessions. |
 | **M5 — MCP connectors** | ✅ Done | `McpHostService` connects to configured servers at boot, discovers their tools and registers them into the existing registry. **No file under `src/agent/nodes/` changed** — the M1 tool shape held; the only structural change was making the `AGENT_TOOLS` factory async. `DEMO_MODE` (default on) serves a real in-process MCP server over the SDK's in-memory transport, so the credential-free demo exercises the whole path rather than bypassing it. Security section built: allowlisted tool surface, schema-validated arguments, retrieved content fenced as untrusted, and 3 adversarial corpus documents carrying real payloads. Verified live both ways — the planner chose the connector unprompted and cited it, and an injected document was described rather than obeyed. |
-| **M6 — evals + guardrails + CI** | 🟡 Built; two criteria quota-blocked, **and the committed numbers need re-running** | `evals/` written from scratch (it never existed — see the deviation below), `src/guardrails/` with five deterministic checks running on every live run *and* scored by the suite, and two GitHub Actions workflows. Both M5 jobs are done: injection resistance is scored deterministically over the runs that actually retrieved an adversarial document, and the harness runs with connectors **off** for a stated reason. Both memory questions from §5/M6.1 are answered from a real run rather than estimated. Numbers, and the three findings the first run surfaced, are in the README and in HANDOFF. **Two acceptance criteria are outstanding, both blocked on quota rather than code** — the agent-vs-baseline delta (~118 model calls) and the judge-agreement figure (20 calls). The 59-question agent pass exhausted the day's free tier on both configured providers; everything for both is written and tested, and failed runs are not cached so a re-run pays only for what is missing. See the M6 criteria below. **Separately, §9 found that the harness's environment isolation never took effect** — see the warning below; the numbers were measured with the demo connector live while recording `connectors: false`. |
+| **M6 — evals + guardrails + CI** | ✅ Done; measured 2026-10-04 | `evals/` written from scratch, `src/guardrails/` with five deterministic checks running on every live run *and* scored by the suite, and two GitHub Actions workflows. **The agent-vs-baseline delta is measured**, closing the criterion that was outstanding: 59 questions against a single-shot control through identical scoring, 0 runs failed in either mode, connectors off *verified* off the booted application after the isolation bug was fixed. **The control wins** — recall@k 96.4% vs 100%, answer correctness 65.4% vs 77.6% — and the suite localised why, which is the point of having one. Two caveats are recorded wherever the numbers appear: 26 of 59 agent questions carry a judge verdict (free-tier quota), and injection resistance reads 87.5% because `tokenLeaked` is a substring test that cannot tell a quoted canary from an obeyed one. Judge agreement remains un-run (20 calls). |
 | **§9 — deployment** | ✅ Built | Dockerfile (index baked in, keyless build via committed vectors), `render.yaml`, rate limit on `POST /agent/ask`, long-term memory off publicly, and the recorded-run fallback wired to an exhausted quota. Image built, booted and exercised in a container; a CI job now does the same on every push. Not yet pushed to a host — that is an account action, not a code one. |
 
 > [!WARNING]
@@ -65,7 +65,7 @@ in history). Local dev on Windows, pnpm, Node 22.
 > and throws before the suite spends ~350 model calls. Trusting the flag is what failed; checking
 > it is cheap.
 >
-> **What is owed:** a re-run, so the numbers match their own description. It is quota, not work.
+> **Discharged 2026-10-04.** The suite was re-run against both modes with the isolation fix in place and `verifyEnvironment` checking the settings off the booted application rather than trusting the flags. The numbers in the README, HANDOFF and §10 are from that run; the figures this warning was about are gone from every live claim and survive only where the text is recounting the bug itself.
 > Until then the README's figures should be read as "measured with the demo connector live".
 
 > [!NOTE]
@@ -1082,17 +1082,22 @@ worth documenting.
 - [x] `pnpm eval` produces a metrics table and writes `evals/results-latest.json`.
 - [x] `pnpm eval --baseline=single-shot` runs the non-agentic comparison. Implemented as a
       mode of the same harness, scored by the identical code, and verified on real questions.
-- [ ] **README contains a results table with both, and the delta.** The agent half is done and
-      complete — all 59 questions, 0 failed, 0 unjudged — and it is in the README. The baseline
-      half is **blocked on quota, not on code**: the agent pass spent the day's free-tier
-      budget on *both* configured providers, and `pnpm eval --baseline=single-shot` then
-      returned `rate limit reached` from gemini and groq alike for 56 of 59 questions. A second
-      attempt later the same day got **21 of 59** through before both providers' *daily* caps
-      went, so the remaining work is 38 questions rather than 59: the successful runs are
-      cached and failed runs never are, so a re-run pays only for what is still missing.
-      Left un-ticked deliberately rather than quietly reworded. This is the criterion §5/M6.1
-      calls "the headline number", and a plan that ticks it over a table with one column
-      filled is exactly the kind of thing the eval suite exists to stop.
+- [x] **README contains a results table with both, and the delta.** Done 2026-10-04. Both modes
+      over all 59 questions through identical scoring code, 0 runs failed in either, connectors
+      verified off. **The control wins** — recall@k 96.4% vs 100%, answer correctness 65.4% vs
+      77.6%, with the agent ahead on `meets minHops` (96.6% vs 49.2%) and citation support.
+      Ticked on the strength of the deterministic half, which is complete for both modes; the
+      judged half carries a stated limitation rather than a silent one — Groq's free tier left
+      26 of 59 agent questions with a verdict against 58 of 59 for the control, so judged rates
+      are also reported over the 26 questions both modes share (agent 65.4% / control 84.6%).
+      **The number is not the win §5/M6.1 anticipated, and it is more useful than one.** The
+      first comparison put the agent at 90.5% recall against the control's 100% with every miss
+      shaped `1/2`; that localised the cause to decomposition narrowing each query away from
+      the language of the document holding the other half. Issuing the question *as asked*
+      beside the decomposition recovered seven of ten and took recall to 96.4% — which in turn
+      exposed the real remaining gap as **synthesis**, not retrieval: eight of 26 matched
+      verdicts are `partial` against one outright wrong, so the agent retrieves both documents
+      and then answers from one. A control that merely lost would have taught none of that.
 - [x] A deliberately regressing PR fails CI; the failure output names the metric and delta.
       Covered permanently by `evals/compare.spec.ts`, which runs against the *committed*
       `baseline.json` so a floor lowered or a tolerance widened until nothing trips it breaks
@@ -1547,13 +1552,33 @@ signal on the page):
 
 > **Throughline — Agentic RAG over multi-source data** *(TypeScript, NestJS, LangGraph, MCP, LangSmith, Next.js)*
 > - LangGraph planner decomposes questions into sub-questions, fans out to mail/chat/notes
->   tools in parallel, and re-queries on detected gaps; multi-hop eval set shows **X%**
->   answer accuracy vs **Y%** for single-shot RAG.
-> - Long-term memory with LLM fact extraction, embedding dedup, and TTL consolidation —
->   retains **Z%** of candidate facts instead of logging every turn.
-> - Eval-gated CI: **N**-question golden set scoring recall@k, citation faithfulness, and
->   abstention; PRs fail on regression. Full LangSmith tracing with per-run token and cost
->   accounting.
+>   tools in parallel, and re-queries on detected gaps; streams the plan, each retrieval and
+>   the cited answer live over SSE.
+> - Built a **59-question benchmark from a hand-authored fact ledger**, so recall@k and
+>   citation validity are deterministic checks rather than model judgments — then measured the
+>   agent against a single-shot RAG control through identical scoring code.
+> - **The control won, and the measurement said why:** query decomposition narrowed retrieval
+>   below the breadth of one sweep. Searching the question as asked alongside the decomposition
+>   lifted recall@k **90.5% → 96.4%** (51.7% → 86.7% on the affected questions) and localised
+>   the remaining gap to synthesis, not retrieval.
+> - Eval-gated CI over a 9-question subset scoring recall@k, citation faithfulness and
+>   abstention; PRs fail on regression. Prompt-injection threat model with real payloads in the
+>   corpus. Full LangSmith tracing with per-run token and cost accounting.
+
+**On leading with a negative result.** The third bullet is the strongest thing on this entry and
+it should not be softened. Anyone can show a system that works; being able to say "I built the
+thing, built the measurement, and the measurement said my system lost to a simpler baseline —
+here is the mechanism, here is the fix, here is what it did and did not recover" is a claim
+about engineering judgement that a passing demo cannot make. It also pre-empts the obvious
+interview attack, because the interviewer cannot find a weakness the candidate has not already
+named and quantified.
+
+Two caveats to carry verbatim if the numbers are discussed, both recorded in the README at the
+point each number appears: only **26 of 59** agent questions carry a judge verdict (free-tier
+quota), so judged rates are quoted over the matched subset both modes share; and injection
+resistance reads 87.5% rather than 100% because `tokenLeaked` is a substring test that cannot
+distinguish the agent *quoting* a canary while describing an attack from obeying one — the
+defence itself held.
 
 **Work bullet — add to the Logicease/Globhe section now, independent of this project.** It is
 already true and needs no public repo:
