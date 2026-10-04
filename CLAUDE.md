@@ -223,7 +223,8 @@ sqlite (`runs` + `run_spans`, bounded by `TRACE_RETENTION_RUNS`) and, when a key
 LangSmith — the agent remembers both within a session and across sessions, MCP connectors join
 the same tool registry, and an eval suite scores the whole thing against the answer key with a
 CI gate on top. §9 deployment is built — image, blueprint, rate limit, quota fallback — and
-**what remains is pushing it to a host, which is an account action rather than a code one.**
+**it is deployed and live** — API on Render (`throughline-api-2aao.onrender.com`), UI on
+Vercel (`throughline-bay.vercel.app`), both auto-deploying from `main`.
 
 **M6's numbers, re-run 2026-10-04 against a single-shot control through identical scoring**
 (see README and HANDOFF). The environment-isolation bug that invalidated the 2026-09-06 figures
@@ -394,7 +395,7 @@ Three things about tracing worth knowing before touching it:
 
 Still open: `LLM_PROVIDER=ollama` has never been exercised; **no third-party MCP server has
 been connected** — the stdio path is written but every live run so far went through the
-in-process demo server; and the deployment has not been pushed to a host yet. (`POST /agent/ask`
+in-process demo server. (`POST /agent/ask`
 is rate limited as of §9; CORS stays open deliberately — see the Deployment section above.)
 
 **`HANDOFF.md` is the orientation doc** — read it before PLAN.md if you are picking this up

@@ -1027,11 +1027,10 @@ whenever both modes are present in `results-latest.json`.
    and `EVAL_JUDGE_TIMEOUT_MS` bounds a judge that queues rather than refuses. Both sides must
    end on the **same** judge or the delta measures the grader: an OpenRouter-judged agent
    against a Groq-judged control read −19.0pp, the same runs on one judge read −12.2pp.
-3. ~~**§9 deployment.**~~ Built 2026-09-06 — see the section above. Both decisions it was
-   waiting on are made: the endpoint is rate limited, and long-term memory does not ship
-   publicly. **What is left is pushing it to a host**, which needs a Render account rather than
-   any code: `render.yaml` is the blueprint and the image has already been built, booted and
-   exercised in a container.
+3. ~~**§9 deployment.**~~ Done. Built 2026-09-06 and **deployed 2026-10-04**: the API runs on
+   Render from `render.yaml`, the UI on Vercel, both auto-deploying from `main`. Both decisions
+   it was waiting on are made — the endpoint is rate limited and long-term memory does not ship
+   publicly. The landing page's hero question was verified replaying against production.
 4. **Outstanding from M5, and small:** no third-party MCP server has been connected. Point
    `MCP_SERVERS` at a published Obsidian server, watch one run, record the GIF. The stdio path
    is written and typechecked; it has just never met a foreign server.
