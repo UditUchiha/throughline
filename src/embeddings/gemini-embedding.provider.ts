@@ -10,13 +10,23 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
   private readonly model: string;
   readonly dimensions: number;
 
-  constructor(private readonly config: AppConfigService) {
+  constructor(
+    private readonly config: AppConfigService,
+    /**
+     * The credential this client authenticates with. Omitted for the ordinary
+     * single-key case, where it resolves from configuration; supplied by
+     * `embeddings.module.ts` when several keys become several clients.
+     */
+    explicitKey?: string,
+    /** How this hop is named in logs, when it is one of several. */
+    readonly label: string = 'gemini',
+  ) {
     // `llmApiKeyFor` rather than the raw `llmApiKey`: it takes the first of a
     // comma-separated list, so a multi-key chat chain cannot hand this client an
     // unusable concatenation — and it consults GEMINI_API_KEY, which this
     // previously did not, so the Gemini key no longer has to be supplied twice
     // under two names to make retrieval work.
-    const apiKey = this.config.embeddingApiKey ?? this.config.llmApiKeyFor('gemini');
+    const apiKey = explicitKey ?? this.config.embeddingApiKey ?? this.config.llmApiKeyFor('gemini');
     if (!apiKey) {
       throw new Error(
         'EMBEDDING_API_KEY (or GEMINI_API_KEY / LLM_API_KEY as fallback) is required when EMBEDDING_PROVIDER=gemini',
@@ -33,7 +43,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     });
     this.model = this.config.embeddingModel;
     this.dimensions = this.config.embeddingDimensions;
-    this.logger.log(`Embedding provider: gemini (${this.model}, ${this.dimensions}d)`);
+    this.logger.log(`Embedding provider: ${this.label} (${this.model}, ${this.dimensions}d)`);
   }
 
   get modelId(): string {

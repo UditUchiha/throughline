@@ -103,6 +103,7 @@ export class JudgeClient {
     private readonly llm: OpenAICompatibleProvider,
     readonly model: string,
     readonly separateProvider: boolean,
+    private readonly timeoutMs: number,
   ) {}
 
   /**
@@ -122,9 +123,18 @@ export class JudgeClient {
     const tracing = app.get(LangSmithTracing);
 
     const answerer = config.llmProvider;
-    const alternative = config.llmFallbackProviders.find(
-      (provider) => provider !== answerer && config.llmApiKeyFor(provider),
-    );
+
+    // An explicitly named judge wins over the chain, provided it is neither the
+    // answerer nor keyless — both of which would silently defeat the separation
+    // this whole arrangement exists to provide.
+    const named = config.evalJudgeProvider;
+    const override = named && named !== answerer && config.llmApiKeyFor(named) ? named : undefined;
+
+    const alternative =
+      override ??
+      config.llmFallbackProviders.find(
+        (provider) => provider !== answerer && config.llmApiKeyFor(provider),
+      );
 
     const provider: LlmProvider = alternative ?? answerer;
     const apiKey = config.llmApiKeyFor(provider);
@@ -139,14 +149,28 @@ export class JudgeClient {
     const llm = new OpenAICompatibleProvider(config, provider, apiKey, false, usage, tracing);
     const model = resolveModel(provider, 'default', {});
 
-    return new JudgeClient(llm, `${provider}/${model}`, alternative !== undefined);
+    return new JudgeClient(
+      llm,
+      `${provider}/${model}`,
+      alternative !== undefined,
+      config.evalJudgeTimeoutMs,
+    );
   }
 
   async judge(question: EvalQuestion, run: EvalRun): Promise<JudgeVerdict> {
+    // Bounded, because "a judge failure degrades one question rather than the
+    // suite" was only ever true of an *error*. A provider that queues a request
+    // instead of refusing it hangs this call forever and takes the whole pass
+    // with it — observed 2026-10-04, when one judge call stalled a 59-question
+    // run at question two for nine minutes with nothing logged. A timeout turns
+    // that back into the degradation the suite already handles.
+    const timeout = AbortSignal.timeout(this.timeoutMs);
+
     const result = await this.llm.chat([{ role: 'user', content: renderPrompt(question, run) }], {
       system: SYSTEM_PROMPT,
       tier: 'default',
       jsonSchema: VERDICT_SCHEMA,
+      signal: timeout,
     });
 
     const parsed = parseJsonObject(result.text, judgeResponseSchema);

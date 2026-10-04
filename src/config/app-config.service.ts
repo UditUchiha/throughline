@@ -86,6 +86,22 @@ export class AppConfigService {
     return this.llmApiKeysFor(provider)[0];
   }
 
+  /**
+   * Judge provider for the eval suite, when one is named.
+   *
+   * Deliberately not part of the LLM chain: the judge does not answer anything,
+   * so putting it in `LLM_FALLBACK_PROVIDERS` would change `answerProvider` and
+   * invalidate every cached run to move a measurement tool.
+   */
+  get evalJudgeProvider(): LlmProvider | undefined {
+    return this.configService.get('EVAL_JUDGE_PROVIDER', { infer: true });
+  }
+
+  /** Upper bound on one eval judge call. */
+  get evalJudgeTimeoutMs(): number {
+    return this.configService.get('EVAL_JUDGE_TIMEOUT_MS', { infer: true });
+  }
+
   // --- Embedding ---
 
   get embeddingProvider(): EmbeddingProviderType {
@@ -93,13 +109,25 @@ export class AppConfigService {
   }
 
   /**
-   * The embedding key — first only, because one client authenticates once.
+   * Every key embeddings may authenticate with, in order.
    *
-   * Split like the LLM keys so a comma-separated value set here does not
-   * authenticate with the literal string "key-a,key-b". Embeddings have no
-   * failover chain to spend the rest on; surviving a quota wall here is
-   * `EMBEDDING_PROVIDER=precomputed` at build time, not a second credential.
+   * `EMBEDDING_API_KEY` wins when set — that is how you embed with a different
+   * credential from the one that answers — and otherwise this is the Gemini
+   * chat chain, so five keys configured once serve both.
+   *
+   * Embeddings needed their own chain for a reason worth recording: chat failing
+   * over while embeddings could not is a *silent* failure, not a loud one. On
+   * 2026-09-21 the first key was rate-limited, chat moved to the second and kept
+   * answering, and every eval question still failed — retrieval returned nothing,
+   * so the answers were fine and the evidence was empty. An agent pass embeds
+   * once per search, several times per question, so one key never survives a run.
    */
+  get embeddingApiKeys(): string[] {
+    const own = splitKeys(this.configService.get('EMBEDDING_API_KEY', { infer: true }));
+    return own.length > 0 ? own : this.llmApiKeysFor('gemini');
+  }
+
+  /** The first embedding key — what a single client authenticates with. */
   get embeddingApiKey(): string | undefined {
     return splitKeys(this.configService.get('EMBEDDING_API_KEY', { infer: true }))[0];
   }

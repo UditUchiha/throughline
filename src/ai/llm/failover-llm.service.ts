@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { APIConnectionError, APIError, APIUserAbortError } from 'openai';
+import { isRetryableProviderError } from '../../common/retryable-provider-error';
 import type { ChatMessage, ChatOptions, ChatResult, LlmService } from './llm.types';
 import { QuotaExceededError, type OpenAICompatibleProvider } from './openai-compatible.provider';
 
@@ -89,28 +89,15 @@ export class FailoverLlmService implements LlmService {
 }
 
 /**
- * True when the failure is about *this provider's* availability rather than the
- * request. A 429 is the common case; 5xx and transport errors are the same class
- * of "try someone else". A 400/401/404 is not — those follow the request wherever
- * it goes.
+ * True when the failure is about *this hop's* availability rather than the
+ * request.
+ *
+ * `QuotaExceededError` is this layer's own wrapper around a 429 and is checked
+ * here; everything else is the shared rule, which embeddings use too.
  */
 function isRetryableOnAnotherProvider(error: unknown): boolean {
-  // Checked first, and it must be: `APIUserAbortError` extends `APIError` with
-  // `status === undefined`, so the general test below would call it retryable.
-  // A caller abort is the run's wall-clock budget expiring or the SSE client
-  // hanging up — not a provider fault. Failing over would re-issue an already-dead
-  // request to every remaining provider and then report "every provider failed",
-  // reporting a provider outage for what was actually a timeout.
-  if (error instanceof APIUserAbortError) return false;
-
   if (error instanceof QuotaExceededError) return true;
-
-  // `APIConnectionError` also lands here — it extends `APIError` carrying no
-  // status — which is the behaviour we want: a provider we cannot reach is one to
-  // fail over from.
-  if (error instanceof APIError) return error.status === undefined || error.status >= 500;
-
-  return error instanceof APIConnectionError;
+  return isRetryableProviderError(error);
 }
 
 function errorMessage(error: unknown): string {

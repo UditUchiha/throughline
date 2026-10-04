@@ -11,6 +11,12 @@ import type { AgentState, AgentStateUpdate } from '../state';
 import { parseJsonObject } from '../structured-output';
 import { ToolRegistry } from '../tools/tool-registry';
 
+/**
+ * Id of the verbatim-question search. Reserved rather than generated so it is
+ * recognisable in a trace and cannot collide with a planner-proposed id.
+ */
+const BREADTH_QUERY_ID = 'sq0';
+
 const RESPONSE_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {
@@ -164,13 +170,16 @@ Reply with JSON only.`;
       return [{ id: 'sq1', text: question, tool: fallbackTool, status: 'pending', hop: 0 }];
     }
 
-    const capped = proposed.slice(0, maxFanOut);
+    // One slot is reserved for the question as asked — see `breadthQuery` below —
+    // so the total number of searches still respects MAX_FAN_OUT.
+    const capped = proposed.slice(0, Math.max(maxFanOut - 1, 0));
 
     // Ids are assigned in their own pass so `dependsOn` can be checked against the
     // final set. Two sub-questions sharing an id would silently collapse in the
     // merge-by-id state reducer, leaving `plan_created` advertising work that
-    // never runs.
-    const ids = new Set<string>();
+    // never runs. Seeded with the reserved id so a planner that proposes "sq0"
+    // cannot collide with it.
+    const ids = new Set<string>([BREADTH_QUERY_ID]);
     const assignedIds = capped.map((sq, i) => {
       let id = sq.id?.trim() || `sq${i + 1}`;
       if (ids.has(id)) {
@@ -185,7 +194,7 @@ Reply with JSON only.`;
       return id;
     });
 
-    return capped.map((sq, i) => {
+    const decomposed = capped.map((sq, i) => {
       const id = assignedIds[i];
       // `sq.tool` is now honestly optional, so the missing case is handled where
       // the unknown case already was rather than reaching `tools.has(undefined)`.
@@ -206,5 +215,28 @@ Reply with JSON only.`;
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
       };
     });
+
+    return [this.breadthQuery(question, fallbackTool), ...decomposed];
+  }
+
+  /**
+   * The question as asked, searched verbatim alongside the decomposition.
+   *
+   * Measured, not guessed. The 2026-10-04 pass scored the agent *below* a
+   * single-shot control on recall@k — 90.5% against 100% — and the misses were
+   * almost all `1/2`: one of two required documents found. Decomposition is what
+   * costs them. A sub-question is rephrased to stand alone ("who owns the billing
+   * migration?"), which moves it away from the language of the document holding
+   * the other half, and each narrow query spends its own TOP_K on its own
+   * neighbourhood. The undecomposed question sits between the two documents and
+   * retrieves both, which is exactly why the control won.
+   *
+   * So this is not a fallback for a failed plan — `normalise` already has one of
+   * those above. It is breadth kept *beside* precision: the decomposition still
+   * runs and still earns its hops, and the evidence sets merge. It costs one
+   * search per run, taken out of the fan-out budget rather than added to it.
+   */
+  private breadthQuery(question: string, tool: string): SubQuestion {
+    return { id: BREADTH_QUERY_ID, text: question, tool, status: 'pending', hop: 0 };
   }
 }

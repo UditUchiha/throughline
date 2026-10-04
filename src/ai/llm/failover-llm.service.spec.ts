@@ -85,11 +85,10 @@ describe('FailoverLlmService', () => {
     expect(res.model).toBe('groq');
   });
 
-  // Asking a second vendor the same malformed question just wastes time before
+  // Asking a second hop the same malformed question just wastes time before
   // showing the same error, so these must not fail over.
   it.each([
     ['a bad request', 400],
-    ['a bad key', 401],
     ['an unknown model', 404],
   ])('rethrows %s immediately without consulting the fallback', async (_label, status) => {
     const primary = stubProvider('gemini', apiError(status));
@@ -99,6 +98,25 @@ describe('FailoverLlmService', () => {
       new FailoverLlmService([primary, fallback]).chat([{ role: 'user', content: 'hi' }]),
     ).rejects.toThrow(`HTTP ${status}`);
     expect(fallback.calls).toBe(0);
+  });
+
+  // Permission is a property of the credential, not of the request, so the next
+  // hop may hold one that is allowed. This reversed an earlier rule that grouped
+  // 401/403 with 400 — see `isRetryableProviderError`, and the eval pass those
+  // two status codes killed.
+  it.each([
+    ['a rejected key', 401],
+    ['a key without access to the model', 403],
+  ])('fails over on %s', async (_label, status) => {
+    const primary = stubProvider('gemini', apiError(status));
+    const fallback = stubProvider('groq', 'ok');
+
+    const res = await new FailoverLlmService([primary, fallback]).chat([
+      { role: 'user', content: 'hi' },
+    ]);
+
+    expect(res.text).toBe('answer from groq');
+    expect(fallback.calls).toBe(1);
   });
 
   it('reports every provider it tried when the whole chain is exhausted', async () => {

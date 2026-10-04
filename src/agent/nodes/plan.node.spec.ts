@@ -100,6 +100,16 @@ describe('PlanNode', () => {
     );
 
     expect(update.subQuestions).toEqual([
+      // The question as asked, searched broadly beside the decomposition — the
+      // breadth that stops a narrow sub-query losing the other half of a
+      // multi-hop answer. See `breadthQuery` in plan.node.ts.
+      {
+        id: 'sq0',
+        text: 'Why did Helios slip?',
+        tool: 'all_sources_search',
+        status: 'pending',
+        hop: 0,
+      },
       {
         id: 'sq1',
         text: 'When did Helios slip?',
@@ -215,9 +225,10 @@ describe('PlanNode', () => {
     );
 
     const subQuestions = update.subQuestions as SubQuestion[];
-    expect(subQuestions).toHaveLength(2);
-    expect(new Set(subQuestions.map((sq) => sq.id)).size).toBe(2);
-    expect(subQuestions.map((sq) => sq.text)).toEqual(['first', 'second']);
+    // Three: the reserved breadth query plus the two de-duplicated proposals.
+    expect(subQuestions).toHaveLength(3);
+    expect(new Set(subQuestions.map((sq) => sq.id)).size).toBe(3);
+    expect(subQuestions.map((sq) => sq.text)).toEqual(['q', 'first', 'second']);
   });
 
   it('records token usage against the run', async () => {

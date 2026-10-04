@@ -127,6 +127,29 @@ export const envSchema = z
     // same small budget — measured on Gemini's free tier (limit 20), maxRetries=5 turned
     // one synthesis call into six and exhausted the window faster than not retrying.
     // Surviving a quota limit needs a fallback provider (PLAN.md §9), not persistence.
+    // Judge provider for the eval suite only. The judge is *measurement
+    // apparatus*, not the system under test, so naming it here rather than adding
+    // it to LLM_FALLBACK_PROVIDERS is the whole point: the answering chain — and
+    // therefore `answerProvider`, which `RunFingerprint` keys on — stays exactly
+    // as a comparison was measured, while judging moves to a provider with quota
+    // left. Added 2026-10-04, when Groq refused 24 judge calls in one pass and
+    // left 21 of 59 questions unjudged with the runs themselves all healthy.
+    //
+    // Must not be the answerer: a judge grading its own model is the one thing
+    // `separateProvider` exists to report. Ignored when it has no API key.
+    EVAL_JUDGE_PROVIDER: llmProviderEnum.removeDefault().optional(),
+
+    // Upper bound on one judge call. Tunable because judge latency is a property
+    // of the provider, not of this suite: Groq answers in seconds and refuses
+    // loudly, while OpenRouter's 70B route queued past 90s on more than half of
+    // a 59-question pass. Too low silently thins the judged set — the number the
+    // headline is computed over — so raise it before concluding a judge is down.
+    EVAL_JUDGE_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(90 * 1000),
+
     LLM_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
 
     // --- Embedding provider ---

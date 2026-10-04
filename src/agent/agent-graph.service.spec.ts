@@ -235,7 +235,9 @@ describe('AgentGraphService', () => {
 
     const planCreated = result.events.find((e) => e.type === 'plan_created');
     expect(planCreated).toBeDefined();
-    expect(planCreated?.type === 'plan_created' && planCreated.subQuestions.length).toBe(2);
+    // Two planned sub-questions plus the reserved breadth search of the question
+    // as asked (`sq0` — see plan.node.ts).
+    expect(planCreated?.type === 'plan_created' && planCreated.subQuestions.length).toBe(3);
 
     const toolsUsed = new Set(
       result.events.filter((e) => e.type === 'tool_started').map((e) => e.tool),
