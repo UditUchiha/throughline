@@ -1,7 +1,7 @@
 {
   "name": "throughline",
   "version": "0.0.1",
-  "description": "Agentic RAG over multi-source data — plans, retrieves across sources, and answers with citations.",
+  "description": "Agentic RAG over multi-source data \u2014 plans, retrieves across sources, and answers with citations.",
   "author": "",
   "private": true,
   "packageManager": "pnpm@10.33.2",
@@ -23,6 +23,7 @@
     "corpus:vectors": "node --env-file-if-exists=.env -r ts-node/register scripts/corpus-vectors.ts",
     "corpus:index": "node --env-file-if-exists=.env -r ts-node/register scripts/corpus-index.ts",
     "capture:runs": "node --env-file=.env -r ts-node/register scripts/capture-runs.ts",
+    "scan:conflicts": "node --env-file-if-exists=.env -r ts-node/register scripts/scan-conflicts.ts",
     "eval": "node --env-file-if-exists=.env -r ts-node/register evals/run-evals.ts",
     "eval:compare": "node -r ts-node/register evals/compare.ts",
     "eval:sweep": "node -r ts-node/register evals/sweep.ts",

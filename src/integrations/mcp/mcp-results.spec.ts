@@ -152,4 +152,66 @@ describe('toRetrievedChunks', () => {
 
     expect(chunks[0].articleId).toBeNull();
   });
+
+  // The three behaviours below were all found by connecting the first real
+  // third-party MCP server (Obsidian, 2026-10-04). Every one of them is generic:
+  // `structuredContent` is a late addition to the protocol, so servers with
+  // perfectly good structure routinely serialise it into a text block.
+  describe('a server that returns JSON inside a text block', () => {
+    const obsidianResult = {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              filename: 'notes/alpha.md',
+              score: -0.1613,
+              matches: [{ context: 'first hit' }, { context: 'second hit' }],
+            },
+            { filename: 'notes/beta.md', score: -0.2082, matches: [{ context: 'third hit' }] },
+          ]),
+        },
+      ],
+    };
+
+    it('reads it as a list rather than one giant passage', () => {
+      const chunks = toRetrievedChunks(obsidianResult, options);
+
+      // The whole point: two documents, separately citable. Parsed as text this
+      // is one passage carrying every hit under a single citation, attributed to
+      // no document at all.
+      expect(chunks).toHaveLength(2);
+      expect(chunks.map((chunk) => chunk.docId)).toEqual([
+        'obsidian:notes/alpha.md',
+        'obsidian:notes/beta.md',
+      ]);
+    });
+
+    it('joins the hits within one document instead of keeping only the first', () => {
+      const [first] = toRetrievedChunks(obsidianResult, options);
+
+      expect(first.text).toContain('first hit');
+      expect(first.text).toContain('second hit');
+    });
+
+    // Obsidian scores are small negatives where -0.16 beats -0.21. Clamping
+    // those to 0..1 puts every result at the worst distance a connector can
+    // produce, discarding the ordering the server took care to send.
+    it('ignores a score off the 0..1 scale and ranks by position', () => {
+      const chunks = toRetrievedChunks(obsidianResult, options);
+
+      expect(chunks[0].distance).toBeLessThan(chunks[1].distance);
+      expect(new Set(chunks.map((chunk) => chunk.distance)).size).toBe(2);
+    });
+
+    it('still reads prose that merely starts with a brace as one passage', () => {
+      const chunks = toRetrievedChunks(
+        { content: [{ type: 'text', text: '{not json at all' }] },
+        options,
+      );
+
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].text).toBe('{not json at all');
+    });
+  });
 });

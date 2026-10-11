@@ -17,6 +17,7 @@ you need, not the whole file. Index below.
 | Tests | `pnpm test` |
 | UI checks | `cd ui && pnpm lint && pnpm typecheck && pnpm test` |
 | Re-verify the corpus answer key | `pnpm corpus:generate --verify-only` (no model calls, seconds) |
+| Audit the corpus for stale claims | `pnpm scan:conflicts` — one model call per document. `--limit=N` to try it cheaply, `--measure` to grade against the ledger's `supersedes` chains |
 | Eval suite (agent) | `pnpm eval` — `--subset=pr` for the 9-question CI subset, `--no-judge` for zero model calls. Only a full pass writes `results-latest.json`; narrowed runs write elsewhere |
 | Eval suite (control) | `pnpm eval --baseline=single-shot` |
 | Regression gate | `pnpm eval:compare` · conventions gate: `pnpm check:conventions` |
@@ -117,6 +118,7 @@ src/agent/replay/ recorded runs replayed over SSE — the §9 demo fallback, and
 src/integrations/mcp/ MCP client host: connect → discover → allowlist → adapt (M5)
 src/integrations/mcp/demo/ the in-process MCP server DEMO_MODE serves
 src/guardrails/   five deterministic checks in two stages; run live AND scored by evals (M6)
+src/conflicts/    stale-knowledge detection — sweeps the index for claims that stopped being true (M7)
 src/agent/examples/ corpus/questions.yaml projected for the UI's one-click examples
 corpus/index/    committed embedding vectors — what makes the Docker index build keyless (§9)
 src/observability/ LangSmith bridge, TraceCollector (span tree), UsageService (cost)
@@ -393,9 +395,59 @@ Three things about tracing worth knowing before touching it:
   every authenticated call while unauthenticated ones still return 200, so it presents as a
   bad key rather than a wrong host.
 
-Still open: `LLM_PROVIDER=ollama` has never been exercised; **no third-party MCP server has
-been connected** — the stdio path is written but every live run so far went through the
-in-process demo server. (`POST /agent/ask`
+**A third-party MCP server is connected** as of 2026-10-04: `mcp-obsidian` over stdio against
+a real Obsidian vault via the Local REST API plugin, answering from five real notes with
+resolving citations. It advertised **15** tools including `obsidian_delete_file`,
+`obsidian_put_content` and `obsidian_append_content`; `allowTools` registered exactly one. That
+is the first time "discovery is not consent" guarded something that could destroy real data.
+
+Three things it taught, all fixed generically in `mcp-results.ts` rather than per-server:
+
+- **JSON arrives inside a text block.** `structuredContent` is a late protocol addition, so a
+  server with good structure still serialises it into one text block; read as text that is a
+  single giant passage carrying every hit under one citation, attributed to no document.
+- **A server may report *where* it matched** (`filename` + `matches[].context`) rather than
+  returning a passage. Those field names are now tried, and the hits within one document are
+  joined rather than truncated to the first.
+- **A score off the 0..1 scale must be ignored.** Obsidian's are small negatives where -0.16
+  beats -0.21; `calibrateDistance` clamps, so every result flattened to the worst distance and
+  the server's ordering was destroyed. Rank is the better guess when the scale is unknown.
+
+**The host can only bind search-shaped tools**, and that is a real limit rather than an
+oversight: `obsidian_get_file_contents` requires a `filepath` the host has no way to supply
+from a query, so it is skipped at bind time. The connector finds *where* something is
+discussed; it cannot read a whole document. A search-then-fetch step is the fix, and it is not
+built.
+
+**M7 — stale-knowledge detection — is in progress** (`src/conflicts/`, `pnpm scan:conflicts`).
+The inversion of everything else here: the agent answers *from* the corpus, this asks what the
+corpus is **wrong** about. A retrieval system quoting a stale document with a resolving citation
+makes that worse, not better, because the citation reads as verification. Four things to know:
+
+- **Candidates are chosen by rank, not distance, and that was measured first.** Both of the
+  ledger's `supersedes` chains rank 1st and 2nd of 171 neighbours, but their absolute distances
+  (0.3639, 0.4033) straddle any cutoff: over 172 documents, 0.40 admits 421 pairs and 0.50
+  admits 8,143 — 55% of every possible pair. The space is too compressed for a threshold to
+  mean anything in the range that matters. The opposite lesson to M5's connector calibration.
+- **The scanner never reads the ledger.** Candidates come from the vector index alone, exactly
+  as they would on a vault with no ledger; `--measure` loads it afterwards, to grade. Feeding
+  the answer key to the detector scores perfectly and proves nothing.
+- **Precision is the metric, not recall.** Two known positives are a smoke test — printed as
+  `2/2`, never a percentage. What decides usefulness is how many findings fall *outside* the
+  answer key, each either a real conflict the ledger never recorded or noise a reader must
+  dismiss. The harness cannot tell them apart; that needs human review.
+- **A partial scan must not read as a clean one.** `0 finding(s)` over "Nothing contradicts
+  itself" is what a quota wall produced after judging nothing — the same vacuous-pass bug as
+  `citationValidity`. The header now reads `NOT RUN` / `(PARTIAL)`, `--measure` refuses to
+  score when nothing was judged, and any failure exits non-zero.
+
+**No full scan has completed.** One call per document against six free-tier credentials sharing
+a per-model window is ~172 calls; the first attempt died 92 seconds in with 85 documents
+unjudged. `--docs=` narrows a scan to named documents — filtering what is *judged*, never what
+it is judged *against* — so a known case costs one call instead of 172. Both known chains
+remain unverified against a live run.
+
+Still open: `LLM_PROVIDER=ollama` has never been exercised. (`POST /agent/ask`
 is rate limited as of §9; CORS stays open deliberately — see the Deployment section above.)
 
 **`HANDOFF.md` is the orientation doc** — read it before PLAN.md if you are picking this up

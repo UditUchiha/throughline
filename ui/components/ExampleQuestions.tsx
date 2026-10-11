@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { ArrowRight, ChevronDown, CircleDot, Lightbulb, Timer, type LucideIcon } from 'lucide-react';
 import type { DemoRun, ExampleQuestion, QuestionCategory } from '@/lib/api';
 import { categoryLabel, formatMs } from '@/lib/presentation';
+import { Code, Panel } from './Panel';
 import { SourceBadge } from './SourceBadge';
 
 /**
@@ -64,6 +66,7 @@ export function ExampleQuestions({
     return (
       <Section
         title="Recorded runs"
+        icon={CircleDot}
         note="Replayed from fixtures/runs — the same event stream, no model calls."
       >
         {demoRuns.length === 0 ? (
@@ -72,27 +75,21 @@ export function ExampleQuestions({
             server.
           </Empty>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {demoRuns.map((run) => (
-              <button
+              <QuestionCard
                 key={run.slug}
-                type="button"
+                question={run.question}
                 disabled={disabled}
-                onClick={() => onPick(run.question)}
-                className="group rounded-lg border border-white/10 bg-ink-900/50 p-3 text-left transition hover:border-white/25 hover:bg-ink-850/60 disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-mono text-[0.65rem] tracking-wide text-signal/80">
-                    {run.label ?? run.slug}
-                  </span>
-                  <span className="shrink-0 font-mono text-[0.65rem] text-ink-700">
+                onPick={onPick}
+                eyebrow={run.label ?? run.slug}
+                footer={
+                  <span className="inline-flex items-center gap-1.5 font-mono text-xs text-muted">
+                    <Timer className="size-3.5" aria-hidden />
                     {formatMs(run.durationMs)} live
                   </span>
-                </div>
-                <p className="mt-1.5 text-sm text-ink-300 group-hover:text-ink-100">
-                  {run.question}
-                </p>
-              </button>
+                }
+              />
             ))}
           </div>
         )}
@@ -105,26 +102,45 @@ export function ExampleQuestions({
   return (
     <Section
       title="Try one"
+      icon={Lightbulb}
       note={`${examples.length} authored questions — the same set the eval suite is scored on.`}
     >
       {examples.length === 0 ? (
         <Empty>The API returned no example questions.</Empty>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {shown.map((group) => (
             <div key={group.category ?? 'spread'}>
               {group.category && (
-                <h3 className="mb-2 font-mono text-[0.65rem] tracking-widest text-ink-700 uppercase">
+                <h3 className="eyebrow mb-3 flex items-center gap-2 text-faint">
                   {group.category} · {categoryLabel(group.category)}
+                  <span aria-hidden className="h-px flex-1 bg-line" />
                 </h3>
               )}
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {group.questions.map((example) => (
-                  <ExampleChip
+                  <QuestionCard
                     key={example.id}
-                    example={example}
+                    question={example.question}
                     disabled={disabled}
                     onPick={onPick}
+                    eyebrow={categoryLabel(example.category)}
+                    footer={
+                      <>
+                        {example.requiredSources.map((source) => (
+                          <SourceBadge key={source} source={source} />
+                        ))}
+                        {example.demoSlug && (
+                          <span
+                            title="A recorded run exists for this question, so it also works in replay mode."
+                            className="inline-flex items-center gap-1 font-mono text-xs text-muted"
+                          >
+                            <CircleDot className="size-3.5" aria-hidden />
+                            recorded
+                          </span>
+                        )}
+                      </>
+                    }
                   />
                 ))}
               </div>
@@ -134,9 +150,14 @@ export function ExampleQuestions({
           <button
             type="button"
             onClick={() => setShowAll((current) => !current)}
-            className="font-mono text-[0.7rem] text-ink-500 underline decoration-dotted underline-offset-4 transition hover:text-ink-300"
+            aria-expanded={showAll}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface-2/60 px-4 text-sm text-fg-2 transition-colors duration-150 hover:border-line-strong hover:text-fg"
           >
-            {showAll ? 'show fewer' : `show all ${examples.length}`}
+            <ChevronDown
+              className={`size-4 transition-transform duration-200 ${showAll ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+            {showAll ? 'Show fewer' : `Show all ${examples.length}`}
           </button>
         </div>
       )}
@@ -144,12 +165,16 @@ export function ExampleQuestions({
   );
 }
 
-function ExampleChip({
-  example,
+function QuestionCard({
+  question,
+  eyebrow,
+  footer,
   disabled,
   onPick,
 }: {
-  example: ExampleQuestion;
+  question: string;
+  eyebrow: string;
+  footer: React.ReactNode;
   disabled: boolean;
   onPick: (question: string) => void;
 }) {
@@ -157,26 +182,20 @@ function ExampleChip({
     <button
       type="button"
       disabled={disabled}
-      onClick={() => onPick(example.question)}
-      className="group rounded-lg border border-white/10 bg-ink-900/50 p-3 text-left transition hover:border-white/25 hover:bg-ink-850/60 disabled:cursor-not-allowed disabled:opacity-45"
+      onClick={() => onPick(question)}
+      className="group flex h-full flex-col rounded-xl border border-line bg-surface-2/50 p-4 text-left transition-[border-color,background-color,transform] duration-200 enabled:hover:-translate-y-0.5 enabled:hover:border-line-strong enabled:hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45"
     >
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[0.65rem] tracking-wide text-signal/80">
-          {categoryLabel(example.category)}
-        </span>
-        {example.requiredSources.map((source) => (
-          <SourceBadge key={source} source={source} />
-        ))}
-        {example.demoSlug && (
-          <span
-            title="A recorded run exists for this question, so it also works in replay mode."
-            className="font-mono text-[0.6rem] text-ink-700"
-          >
-            ● recorded
-          </span>
-        )}
-      </div>
-      <p className="mt-1.5 text-sm text-ink-300 group-hover:text-ink-100">{example.question}</p>
+      <span className="flex items-center justify-between gap-2">
+        <span className="font-mono text-xs font-medium text-signal">{eyebrow}</span>
+        <ArrowRight
+          className="size-4 shrink-0 text-faint transition-[transform,color] duration-200 group-enabled:group-hover:translate-x-0.5 group-enabled:group-hover:text-signal"
+          aria-hidden
+        />
+      </span>
+      <span className="mt-2 flex-1 text-sm leading-relaxed text-fg-2 group-enabled:group-hover:text-fg">
+        {question}
+      </span>
+      <span className="mt-3 flex flex-wrap items-center gap-1.5">{footer}</span>
     </button>
   );
 }
@@ -217,32 +236,23 @@ function groupByCategory(examples: ExampleQuestion[]) {
 
 function Section({
   title,
+  icon,
   note,
   children,
 }: {
   title: string;
+  icon: LucideIcon;
   note: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <span>{title}</span>
-        <span className="hidden text-[0.65rem] normal-case sm:inline">{note}</span>
-      </div>
-      <div className="p-3 sm:p-4">{children}</div>
-    </section>
+    <Panel title={title} icon={icon}>
+      <p className="mb-4 text-sm text-muted">{note}</p>
+      {children}
+    </Panel>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-ink-500">{children}</p>;
-}
-
-function Code({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="rounded bg-ink-950/80 px-1.5 py-0.5 font-mono text-[0.75rem] text-ink-300">
-      {children}
-    </code>
-  );
+  return <p className="text-sm text-muted">{children}</p>;
 }

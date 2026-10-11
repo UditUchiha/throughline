@@ -16,6 +16,18 @@ export interface NewChunk {
 
 export interface ChunkRepository {
   insertMany(articleId: number, chunks: NewChunk[]): Promise<Chunk[]>;
+  /**
+   * Every chunk in the index, ordered by id.
+   *
+   * Unbounded on purpose and only safe because of what calls it: the conflict
+   * scanner, a batch job that by definition has to consider the whole corpus —
+   * asking "what in here disagrees with itself" over a page of it is not a
+   * smaller version of the question, it is a different one. At 172 chunks the
+   * whole corpus is well under a megabyte. A corpus large enough for that to
+   * hurt needs cursored iteration, which is a change to make when a second
+   * caller exists rather than now (PLAN.md §0.4).
+   */
+  findAll(): Promise<Chunk[]>;
   findById(id: number): Promise<Chunk | null>;
   findByIds(ids: number[]): Promise<Chunk[]>;
   findByArticleId(articleId: number): Promise<Chunk[]>;

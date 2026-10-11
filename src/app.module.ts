@@ -9,6 +9,7 @@ import { AgentModule } from './agent/agent.module';
 import { MemoryModule } from './memory/memory.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { ConflictsModule } from './conflicts/conflicts.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
     MemoryModule,
     ObservabilityModule,
     SchedulerModule,
+    ConflictsModule,
   ],
   controllers: [AppController],
   providers: [],

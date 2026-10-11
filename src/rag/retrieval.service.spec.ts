@@ -61,6 +61,8 @@ function build(
       searched.push({ topK, sourceFilter });
       return Promise.resolve(options.hits ?? [{ chunkId: 1, distance: 0.4 }]);
     },
+    // Retrieval never walks the index from a chunk; only the conflict scanner does.
+    neighbours: () => Promise.resolve([]),
   };
 
   const available = options.chunks ?? CHUNKS;

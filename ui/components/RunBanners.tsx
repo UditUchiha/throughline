@@ -1,7 +1,9 @@
 'use client';
 
+import { History, Hourglass, LoaderCircle, OctagonAlert, Unplug } from 'lucide-react';
 import type { ReplayInfo } from '@/lib/run-state';
 import { connectionCause, formatCapturedAt } from '@/lib/presentation';
+import { Callout } from './Callout';
 
 /**
  * The replay banner.
@@ -13,17 +15,16 @@ import { connectionCause, formatCapturedAt } from '@/lib/presentation';
  */
 export function ReplayBanner({ replay }: { replay: ReplayInfo }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-xl border border-warn/35 bg-warn/10 px-4 py-2.5 text-sm text-warn">
-      <span className="font-semibold">Recorded run.</span>
-      <span className="text-ink-300">
+    <Callout tone="warn" icon={History} title="Recorded run.">
+      <p>
         {replay.reason === 'quota_exhausted'
           ? 'The live provider was out of quota, so a captured run is being replayed instead.'
           : 'Replaying a captured run — no model was called.'}
-      </span>
-      <span className="font-mono text-[0.7rem] text-ink-500">
+      </p>
+      <p className="font-mono text-xs text-muted">
         {replay.slug} · captured {formatCapturedAt(replay.capturedAt)}
-      </span>
-    </div>
+      </p>
+    </Callout>
   );
 }
 
@@ -34,17 +35,15 @@ export function ReplayBanner({ replay }: { replay: ReplayInfo }) {
  */
 export function FailureBanner({ error, demo }: { error: string; demo: boolean }) {
   return (
-    <div className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3">
-      <p className="text-sm font-semibold text-danger">The run failed.</p>
-      <p className="mt-1 font-mono text-xs leading-relaxed break-words text-ink-300">{error}</p>
+    <Callout tone="danger" icon={OctagonAlert} title="The run failed." urgent>
+      <p className="font-mono text-xs leading-relaxed wrap-break-word">{error}</p>
       {!demo && (
-        <p className="mt-2 text-xs text-ink-500">
-          Free-tier quota is the usual cause. Tick{' '}
-          <span className="text-ink-300">Replay a recorded run</span> above to watch a captured run
-          instead — it makes no model calls.
+        <p className="text-muted">
+          Free-tier quota is the usual cause. Switch to <ModeName>Replay</ModeName> above to watch
+          a captured run instead — it makes no model calls.
         </p>
       )}
-    </div>
+    </Callout>
   );
 }
 
@@ -75,14 +74,13 @@ function isLocalApi(apiUrl: string): boolean {
  */
 export function ColdStartBanner({ apiUrl }: { apiUrl: string }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-xl border border-warn/35 bg-warn/10 px-4 py-2.5 text-sm text-warn">
-      <span className="font-semibold">Waking the API…</span>
-      <span className="text-ink-300">
+    <Callout tone="warn" icon={LoaderCircle} spin title="Waking the API…">
+      <p>
         {isLocalApi(apiUrl)
           ? 'Waiting for the local server to answer.'
           : 'It sleeps after 15 idle minutes on the free tier and takes up to a minute to come back. Nothing is wrong.'}
-      </span>
-    </div>
+      </p>
+    </Callout>
   );
 }
 
@@ -108,39 +106,48 @@ export function ConnectionBanner({
   status: number | null;
 }) {
   const cause = connectionCause(isLocalApi(apiUrl), status);
+  const rateLimited = cause === 'rate-limited';
 
   return (
-    <div className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3">
-      <p className="text-sm font-semibold text-danger">
-        {cause === 'rate-limited' ? 'Rate limit reached.' : 'Could not reach the API.'}
-      </p>
-      <p className="mt-1 font-mono text-xs leading-relaxed break-words text-ink-300">{error}</p>
+    <Callout
+      tone="danger"
+      icon={rateLimited ? Hourglass : Unplug}
+      title={rateLimited ? 'Rate limit reached.' : 'Could not reach the API.'}
+      urgent
+    >
+      <p className="font-mono text-xs leading-relaxed wrap-break-word">{error}</p>
       {cause === 'local-dev' && (
-        <p className="mt-2 text-xs text-ink-500">
-          Expecting it at <span className="font-mono text-ink-300">{apiUrl}</span>. Start it with{' '}
-          <span className="font-mono text-ink-300">pnpm start:dev</span>, or point{' '}
-          <span className="font-mono text-ink-300">NEXT_PUBLIC_API_URL</span> somewhere else.
+        <p className="text-muted">
+          Expecting it at <Mono>{apiUrl}</Mono>. Start it with <Mono>pnpm start:dev</Mono>, or
+          point <Mono>NEXT_PUBLIC_API_URL</Mono> somewhere else.
         </p>
       )}
-      {cause === 'rate-limited' && (
-        <p className="mt-2 text-xs text-ink-500">
+      {rateLimited && (
+        <p className="text-muted">
           This demo allows 5 questions every 10 minutes per visitor, to keep the free-tier quota
-          available for everyone trying it. Check{' '}
-          <span className="font-medium text-ink-300">Replay a recorded run</span> to keep
-          exploring for free, or wait a few minutes and ask again.
+          available for everyone trying it. Switch to <ModeName>Replay</ModeName> to keep exploring
+          for free, or wait a few minutes and ask again.
         </p>
       )}
       {cause === 'no-response' && (
-        <p className="mt-2 text-xs text-ink-500">
-          <span className="font-mono text-ink-300">{apiUrl}</span> runs on a free tier that sleeps
-          after 15 idle minutes. A reload usually catches it once it has woken.
+        <p className="text-muted">
+          <Mono>{apiUrl}</Mono> runs on a free tier that sleeps after 15 idle minutes. A reload
+          usually catches it once it has woken.
         </p>
       )}
       {cause === 'api-error' && (
-        <p className="mt-2 text-xs text-ink-500">
+        <p className="text-muted">
           The API responded with an error rather than an answer — see the message above.
         </p>
       )}
-    </div>
+    </Callout>
   );
+}
+
+function Mono({ children }: { children: React.ReactNode }) {
+  return <span className="font-mono text-fg-2">{children}</span>;
+}
+
+function ModeName({ children }: { children: React.ReactNode }) {
+  return <span className="font-medium text-fg-2">{children}</span>;
 }

@@ -386,6 +386,75 @@ export function hopCount(view: RunView): number {
   return view.toolCalls.reduce((highest, call) => Math.max(highest, call.hop), 0);
 }
 
+export const RUN_STAGES = ['triage', 'plan', 'retrieve', 'reflect', 'answer'] as const;
+export type RunStageId = (typeof RUN_STAGES)[number];
+export type RunStageStatus = 'pending' | 'active' | 'done' | 'skipped' | 'failed';
+
+/**
+ * Where the graph is, derived from the view alone.
+ *
+ * The event contract is frozen and carries no "stage" field, so this reads the
+ * stage off what has arrived. At most one stage is ever `active`, and a failed
+ * run marks *that* one failed — the stage the run was in when it stopped, which
+ * is the useful fact, rather than painting every unfinished stage red.
+ *
+ * The reflect→retrieve loop is shown as it happens: after a reflection finds a
+ * gap, retrieve goes active again while reflect stays done, and reflect goes
+ * active once more when that round's tools have all returned.
+ */
+export function runStages(view: RunView): Record<RunStageId, RunStageStatus> {
+  if (view.status === 'idle') {
+    return { triage: 'pending', plan: 'pending', retrieve: 'pending', reflect: 'pending', answer: 'pending' };
+  }
+
+  const calls = view.toolCalls;
+  const toolsRunning = calls.some((call) => call.finishedAtMs === null);
+  const rounds = calls.length === 0 ? 0 : hopCount(view) + 1;
+  const lastReflection = view.reflections.at(-1);
+  const reflectedThisRound = rounds > 0 && view.reflections.length >= rounds;
+  const answering = view.status === 'finished' || view.streamedText.length > 0;
+
+  const triage: RunStageStatus = view.triage ? 'done' : 'active';
+
+  const plan: RunStageStatus = !view.triage
+    ? 'pending'
+    : view.triage.complexity === 'simple'
+      ? 'skipped'
+      : view.planned
+        ? 'done'
+        : 'active';
+
+  const readyToRetrieve = plan === 'done' || plan === 'skipped';
+
+  let retrieve: RunStageStatus;
+  if (answering) retrieve = calls.length > 0 ? 'done' : 'skipped';
+  else if (toolsRunning) retrieve = 'active';
+  else if (calls.length === 0) retrieve = readyToRetrieve ? 'active' : 'pending';
+  // A gap was found and its follow-ups have not started yet: retrieval resumes.
+  else if (reflectedThisRound && lastReflection?.gapFound) retrieve = 'active';
+  else retrieve = 'done';
+
+  let reflect: RunStageStatus;
+  if (answering) reflect = view.reflections.length > 0 ? 'done' : 'skipped';
+  else if (calls.length === 0 || toolsRunning) reflect = view.reflections.length > 0 ? 'done' : 'pending';
+  else reflect = reflectedThisRound ? 'done' : 'active';
+
+  let answer: RunStageStatus;
+  if (view.status === 'finished') answer = 'done';
+  else if (answering) answer = 'active';
+  else if (reflectedThisRound && !toolsRunning && !lastReflection?.gapFound) answer = 'active';
+  else answer = 'pending';
+
+  const stages: Record<RunStageId, RunStageStatus> = { triage, plan, retrieve, reflect, answer };
+  if (view.status !== 'failed') return stages;
+
+  // Stopped or failed: the stage it was in is the one that failed.
+  for (const id of RUN_STAGES) {
+    if (stages[id] === 'active') stages[id] = 'failed';
+  }
+  return stages;
+}
+
 /** The window the timeline is drawn against: first tool start → last tool finish. */
 export function retrievalWindow(view: RunView): { startMs: number; endMs: number } | null {
   if (view.toolCalls.length === 0) return null;

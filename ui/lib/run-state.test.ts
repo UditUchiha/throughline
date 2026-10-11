@@ -8,6 +8,7 @@ import {
   hopCount,
   markersByEvidenceId,
   retrievalWindow,
+  runStages,
   startRun,
   type RunView,
 } from './run-state';
@@ -322,5 +323,89 @@ describe('applyEvent edge cases', () => {
 
     expect(view.replay?.slug).toBe('multihop-helios-delay');
     expect(view.replay?.capturedAt).toBe('2026-09-04T13:28:54.317Z');
+  });
+});
+
+describe('runStages', () => {
+  /** The view up to and including the first event matching `predicate` — a run caught mid-flight. */
+  function replayUntil(slug: string, predicate: (event: EmittedAgentEvent) => boolean): RunView {
+    const fixture = loadFixture(slug);
+    const stop = fixture.events.findIndex(predicate);
+    expect(stop, `${slug} has the event this test stops at`).toBeGreaterThanOrEqual(0);
+    return fixture.events.slice(0, stop + 1).reduce(applyEvent, startRun(fixture.question));
+  }
+
+  it('ends every captured fixture with nothing pending or active', () => {
+    const slugs = readdirSync(FIXTURE_DIR)
+      .filter((file) => file.endsWith('.json'))
+      .map((file) => file.replace(/\.json$/, ''));
+
+    for (const slug of slugs) {
+      const statuses = Object.values(runStages(replay(slug)));
+      expect(
+        statuses.every((status) => status === 'done' || status === 'skipped'),
+        slug,
+      ).toBe(true);
+    }
+  });
+
+  it('shows planning as skipped, not pending, on a simple run', () => {
+    expect(runStages(replay('simple-tariq-start')).plan).toBe('skipped');
+    expect(runStages(replay('multihop-helios-owner-cause')).plan).toBe('done');
+  });
+
+  it('has exactly one active stage at every point of a run', () => {
+    // Walks every prefix of the run with the most stage transitions, including
+    // two reflect→retrieve loops. Two stages lit at once would tell the visitor
+    // the graph runs nodes concurrently, which it does not.
+    const fixture = loadFixture('second-hop-board-outcomes');
+    let view = startRun(fixture.question);
+
+    for (const event of fixture.events.slice(0, -1)) {
+      view = applyEvent(view, event);
+      const active = Object.values(runStages(view)).filter((status) => status === 'active');
+      expect(active, event.type).toHaveLength(1);
+    }
+  });
+
+  it('returns to retrieval after a reflection finds a gap', () => {
+    const view = replayUntil(
+      'second-hop-board-outcomes',
+      (event) => event.type === 'reflect_done' && event.gapFound,
+    );
+    const stages = runStages(view);
+
+    expect(stages.retrieve).toBe('active');
+    expect(stages.reflect).toBe('done');
+    expect(stages.answer).toBe('pending');
+  });
+
+  it('is in planning between a complex triage and the plan arriving', () => {
+    const stages = runStages(
+      replayUntil('multihop-helios-owner-cause', (event) => event.type === 'triage_done'),
+    );
+
+    expect(stages.triage).toBe('done');
+    expect(stages.plan).toBe('active');
+    expect(stages.retrieve).toBe('pending');
+  });
+
+  it('marks the stage a run failed in, and only that one', () => {
+    const at = (ms: number) => new Date(Date.parse('2026-09-04T00:00:00.000Z') + ms).toISOString();
+    const events = [
+      { type: 'run_started', runId: 'r1', question: 'q', seq: 0, ts: at(0) },
+      { type: 'triage_done', complexity: 'complex', reasoning: 'two sources', seq: 1, ts: at(10) },
+      { type: 'run_failed', error: 'quota exhausted', seq: 2, ts: at(20) },
+    ] as EmittedAgentEvent[];
+
+    const stages = runStages(events.reduce(applyEvent, startRun('q')));
+
+    expect(stages).toEqual({
+      triage: 'done',
+      plan: 'failed',
+      retrieve: 'pending',
+      reflect: 'pending',
+      answer: 'pending',
+    });
   });
 });

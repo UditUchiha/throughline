@@ -95,6 +95,8 @@ function build(options: { indexed?: IndexState[]; articles?: Article[] } = {}): 
       return Promise.resolve();
     },
     search: () => Promise.resolve([]),
+    // Indexing writes vectors; only the conflict scanner reads them back out.
+    neighbours: () => Promise.resolve([]),
   };
 
   const indexStateRepository: IndexStateRepository = {

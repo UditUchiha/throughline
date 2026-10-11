@@ -1168,6 +1168,125 @@ worth documenting.
 
 ---
 
+### M7 — Stale-knowledge detection *(in progress)*
+
+**Goal:** invert the system. Every other path here is *pull* — a question arrives, evidence is
+retrieved for it. This is *push*: nobody thinks to ask whether the pricing note is still
+current, they read it and act on it. A retrieval system that answers from a stale document
+with a resolving citation makes that **worse**, because the citation reads as verification.
+
+This is the first milestone whose output is not an answer. `pnpm scan:conflicts` sweeps the
+indexed corpus and reports pairs of documents that cannot both be true, each with both
+quotes, both sources, and which one to stop trusting.
+
+**Why this corpus can prove it and a competitor's cannot.** `supersedes` in
+`corpus/ledger/facts.yaml` was authored in M0, long before any of this existed, and records
+two chains: seat-based to usage-based pricing (notes to notes), and the API v2 deprecation
+date to its extension (**mail to chat**, so detection has to cross sources). That is ground
+truth for a claim nobody else selling this can make — that the detector was measured rather
+than demonstrated.
+
+**The scanner never reads the ledger.** Candidates come from the vector index alone, exactly
+as they would on a vault with no ledger at all; `--measure` loads it afterwards, to grade.
+Feeding the answer key into the detector would produce a perfect score and a worthless tool.
+
+#### M7.1 — Candidate generation by rank, not distance
+
+Decided by measurement before any code was written, since the whole design rests on it: do a
+document and the document superseding it sit near each other in embedding space? Both known
+chains rank **1st and 2nd** of 171 neighbours, so the signal is strong.
+
+But the absolute distances — 0.3639 and 0.4033 — **straddle any cutoff that could be drawn**.
+Over the 172-document corpus a threshold of 0.40 admits 421 pairs and 0.50 admits 8,143, which
+is 55% of every possible pair. There is no distance that separates "about the same thing" from
+"both in English", so the scanner takes each document's top *N* neighbours by rank and ignores
+the number. This is the same lesson as the connector `distance` calibration in M5, in the
+opposite direction: there, an unknown scale had to be mapped into a measured band; here, a
+measured scale turns out to carry almost no information in the range that matters.
+
+#### M7.2 — One model call per document, not per pair
+
+The corpus yields ~500 near-neighbour pairs but only 172 documents. Judging a document against
+all its neighbours in one call is the difference between a scan that runs on a free tier and
+one that does not — and it lets the model see that a claim is repeated in three places rather
+than meeting each repetition cold.
+
+Measured: the first live scan judged 4 documents in 123s, which is 86 minutes for the corpus —
+long enough that nobody would run it, and **a scan nobody runs detects nothing**. The work is
+almost entirely provider latency, so it runs four documents at a time. Findings are collected
+by document index rather than completion order, because `--json` exists to be diffed between
+two scans.
+
+#### M7.3 — Precision is the metric, not recall
+
+Two known positives measure recall as a *smoke test*; a fraction over two is not a rate and
+`--measure` prints it as `2/2` rather than a percentage so it cannot be quoted as one.
+
+The number that decides whether anyone uses this is the other column: **how many findings a
+scan raises that are not in the answer key.** Each is either a genuine conflict the ledger
+never recorded or noise a reader has to dismiss, and the harness cannot tell them apart — that
+needs human review. A detector raising fifty findings over 172 documents is useless however
+well it does on the two it was graded against. Hence a judge prompt that spends most of its
+length on what is *not* a conflict, and `unresolved` as a first-class verdict so the model is
+never forced to invent an ordering to report something.
+
+**Direction is scored separately from detection.** Knowing two documents disagree is half the
+job; saying which one to stop trusting is the half a reader acts on, and a reversed finding is
+worse than no finding.
+
+#### M7.4 — Exposure, and why the fence matters more here
+
+A scan feeds **every document there is** to a model, including the corpus's `adversarial: true`
+payloads, which exist precisely to be followed. The agent only ever sees what a search
+returned; this sees everything. Bodies are wrapped in `wrapUntrusted`; document ids stay
+outside the fence because the model has to copy one back to say which neighbour it means, and
+asking it to both distrust and rely on one span is a contradiction it would resolve by
+guessing.
+
+The structural guarantee is the stronger half and is unchanged from M5: this call **names no
+tools and can reach none**, so the worst a successful injection achieves is a fabricated
+finding in a report a human is already reading critically.
+
+**No controller, deliberately.** A scan costs one model call per document and minutes of wall
+clock; an HTTP request is the wrong shape, and exposing one on the public instance would hand
+any visitor the whole corpus's model budget. Making this reachable over the wire wants a job
+queue and a results endpoint — a different piece of work from the detection itself.
+
+#### M7.5 — A partial scan must not read as a clean one
+
+Found by the quota wall rather than by design, and it is the same bug the eval suite already
+records twice — `citationValidity` rising as the agent cites less, and the walled baseline
+printing a winning comparison while measuring nothing. "No conflicts" and "nothing was
+examined" produce the same empty list, and the difference is the entire value of the report.
+
+The first full scan died 92 seconds in with every credential rate-limited, judged nothing, and
+printed `0 finding(s)` above `Nothing in the corpus contradicts itself.` A clean bill of health
+for an audit that never ran.
+
+Three fixes, all about refusing to turn an outage into a result:
+- The header reads `NOT RUN` when nothing was judged, and `(PARTIAL)` when some was.
+- `--measure` refuses to score at all when nothing was judged — a chain cannot be counted as
+  missed by a scan that never looked for it — and prints its counts as floors, not rates,
+  whenever any document failed.
+- A non-zero exit when any document failed, so a scheduled scan cannot report silence.
+
+**The quota ceiling is the real constraint on this milestone.** One call per document against
+six free-tier credentials that share a per-model window is roughly 172 calls per scan, and a
+full pass has not yet completed. `--docs=` narrows a scan to named documents — filtering what
+is *judged*, never what it is judged *against* — so a known case costs one call instead of 172.
+That is what makes the detector verifiable at all on this budget.
+
+#### Acceptance criteria
+
+- [x] Candidate generation is free of model calls and independently tested
+- [x] The ledger is used only to grade, never to detect
+- [x] A partial or failed scan cannot present itself as a clean result
+- [ ] Both known chains detected, with the direction correct *(blocked on quota)*
+- [ ] Findings outside the answer key triaged by hand, and the count recorded here
+- [ ] A second scan of an unchanged corpus produces the same report
+
+---
+
 ## 6. Corpus specification
 
 **Read this fully before generating anything.** A weak corpus makes every downstream metric

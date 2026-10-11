@@ -1,7 +1,10 @@
 'use client';
 
+import { CircleAlert, ScanSearch } from 'lucide-react';
 import { retrievalWindow, type RunView, type ToolCall } from '@/lib/run-state';
 import { formatMs, sourceForTool, sourceStyle } from '@/lib/presentation';
+import { Panel, Waiting } from './Panel';
+import { SourceIcon } from './SourceBadge';
 
 /**
  * Horizontal bars for every tool call, on a shared time axis.
@@ -22,41 +25,41 @@ export function ToolTimeline({ view }: { view: RunView }) {
   const span = window ? window.endMs - window.startMs : 0;
 
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <span>Retrieval</span>
-        {window && (
-          <span className="font-normal normal-case text-ink-500">
+    <Panel
+      title="Retrieval"
+      icon={ScanSearch}
+      meta={
+        window && (
+          <>
             {view.toolCalls.length} call{view.toolCalls.length === 1 ? '' : 's'} over{' '}
             {formatMs(span)}
-          </span>
-        )}
-      </div>
-
-      <div className="p-3 sm:p-4">
-        {!window ? (
-          <p className="font-mono text-xs text-ink-700">no tool calls yet…</p>
-        ) : (
-          <>
-            <ol className="space-y-2.5">
-              {view.toolCalls.map((call) => (
-                <TimelineRow
-                  key={call.key}
-                  call={call}
-                  windowStartMs={window.startMs}
-                  spanMs={span}
-                />
-              ))}
-            </ol>
-
-            <div className="mt-3 flex justify-between border-t border-white/8 pt-1.5 font-mono text-[0.6rem] text-ink-700">
-              <span>0ms</span>
-              <span>{formatMs(span)}</span>
-            </div>
           </>
-        )}
-      </div>
-    </section>
+        )
+      }
+    >
+      {!window ? (
+        <Waiting live={view.status === 'streaming'}>No tool calls yet…</Waiting>
+      ) : (
+        <>
+          <ol className="space-y-3.5">
+            {view.toolCalls.map((call) => (
+              <TimelineRow
+                key={call.key}
+                call={call}
+                windowStartMs={window.startMs}
+                spanMs={span}
+              />
+            ))}
+          </ol>
+
+          <div className="mt-4 flex justify-between border-t border-line pt-2 font-mono text-xs text-faint tabular-nums">
+            <span>0ms</span>
+            <span>{formatMs(span / 2)}</span>
+            <span>{formatMs(span)}</span>
+          </div>
+        </>
+      )}
+    </Panel>
   );
 }
 
@@ -69,7 +72,8 @@ function TimelineRow({
   windowStartMs: number;
   spanMs: number;
 }) {
-  const style = sourceStyle(sourceForTool(call.tool));
+  const source = sourceForTool(call.tool);
+  const style = sourceStyle(source);
   const running = call.finishedAtMs === null;
   const failed = call.error !== null;
 
@@ -80,22 +84,29 @@ function TimelineRow({
   const widthPercent = Math.max(((endMs - call.startedAtMs) / spanMs) * 100, 3);
 
   return (
-    <li className={style.className}>
-      <div className="flex items-baseline justify-between gap-2 text-[0.7rem]">
+    <li className={`${style.className} animate-enter`}>
+      <div className="flex items-center justify-between gap-3 text-xs">
         <span
-          className={`truncate font-mono ${failed ? 'text-danger' : 'text-[var(--accent)]'}`}
+          className={`flex min-w-0 items-center gap-1.5 font-mono font-medium ${
+            failed ? 'text-danger' : 'text-accent'
+          }`}
         >
-          {call.tool}
+          {failed ? (
+            <CircleAlert className="size-3.5 shrink-0" aria-hidden />
+          ) : (
+            <SourceIcon source={source} className="size-3.5 shrink-0" />
+          )}
+          <span className="truncate">{call.tool}</span>
         </span>
-        <span className="shrink-0 font-mono text-ink-700">
+        <span className="shrink-0 font-mono text-muted tabular-nums">
           {call.subQuestionId} ·{' '}
           {running ? 'running…' : failed ? 'failed' : formatMs(call.latencyMs)}
         </span>
       </div>
 
-      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-ink-950/70">
+      <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-surface-3/70">
         <div
-          className={`h-full rounded-full ${failed ? 'bg-danger' : 'bg-[var(--accent)]'} ${
+          className={`h-full rounded-full ${failed ? 'bg-danger' : 'bg-accent'} ${
             running ? 'running-bar' : ''
           }`}
           style={{
@@ -118,7 +129,7 @@ function TimelineRow({
       {/* The error replaces the query rather than joining it: a call that threw
           retrieved nothing, so what it searched for is no longer the useful fact. */}
       <p
-        className={`mt-1 truncate text-[0.7rem] ${failed ? 'text-danger' : 'text-ink-700'}`}
+        className={`mt-1.5 truncate text-xs ${failed ? 'text-danger' : 'text-muted'}`}
         title={failed ? call.error! : call.input}
       >
         {failed ? call.error : call.input}

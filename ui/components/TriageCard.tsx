@@ -1,6 +1,8 @@
 'use client';
 
+import { Gauge } from 'lucide-react';
 import type { RunView } from '@/lib/run-state';
+import { Panel, Waiting } from './Panel';
 
 /**
  * Triage's verdict, first in the trace because it is first in the graph — and
@@ -11,27 +13,30 @@ export function TriageCard({ view }: { view: RunView }) {
   const complex = view.triage?.complexity === 'complex';
 
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <span>Triage</span>
-        {view.triage && (
+    <Panel
+      title="Triage"
+      icon={Gauge}
+      meta={
+        view.triage && (
           <span
-            className={`font-mono text-[0.7rem] normal-case ${complex ? 'text-notes' : 'text-signal'}`}
+            className={`${complex ? 'source-notes' : ''} rounded-full border px-2 py-0.5 ${
+              complex
+                ? 'border-accent/40 bg-accent/14 text-accent'
+                : 'border-signal/40 bg-signal/14 text-signal'
+            }`}
           >
             {view.triage.complexity}
           </span>
-        )}
-      </div>
-
-      <div className="p-3 sm:p-4">
-        {view.triage ? (
-          <p className="text-sm leading-relaxed text-ink-300">{view.triage.reasoning}</p>
-        ) : (
-          <p className="font-mono text-xs text-ink-700">
-            {view.status === 'streaming' ? 'classifying…' : 'not started'}
-          </p>
-        )}
-      </div>
-    </section>
+        )
+      }
+    >
+      {view.triage ? (
+        <p className="text-sm leading-relaxed text-fg-2">{view.triage.reasoning}</p>
+      ) : (
+        <Waiting live={view.status === 'streaming'}>
+          {view.status === 'streaming' ? 'Classifying the question…' : 'Not started.'}
+        </Waiting>
+      )}
+    </Panel>
   );
 }

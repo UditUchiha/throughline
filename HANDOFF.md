@@ -672,12 +672,14 @@ recording's.
 - ~~A full live multi-hop run has not been watched end to end in the UI in one sitting.~~
   Done 2026-09-05: live, 11.7s, triage → plan → two parallel tools → 10 evidence → cited
   answer, with cost and the failover chain rendered and no console errors.
-- **No third-party MCP server has been connected.** The stdio path (`StdioClientTransport`,
-  `MCP_SERVERS`, the connect timeout, environment merging for an `npx`-launched child) is
-  written and typechecked but has never talked to a published server — every live run so far
-  went through the in-process demo server, which is a real MCP server over a real client but
-  not a foreign one. Pointing `MCP_SERVERS` at a published Obsidian server, watching one run,
-  and recording the GIF is the outstanding half of M5's first acceptance criterion.
+- ~~**No third-party MCP server has been connected.**~~ Done 2026-10-04: `uvx mcp-obsidian`
+  over stdio against a real vault through the Local REST API plugin. The stdio path worked
+  unchanged — `StdioClientTransport`, `MCP_SERVERS`, the connect timeout and the environment
+  merge all held on first contact; the API key reached the child purely by inheritance. What
+  did **not** hold was the result adapter: see the three generic fixes in `mcp-results.ts`
+  (JSON-in-a-text-block, `filename`/`matches[].context`, and ignoring an off-scale score).
+  **A dead connector also behaved correctly** — with Obsidian closed, `tool_finished.error` was
+  populated and the agent abstained rather than reporting an empty search as a successful one.
 - **Nothing has exercised a connector that shares a source with the corpus in a live
   multi-hop run**, and **the connector's calibrated `distance` has never been compared against
   corpus distances in one answer.** Both were listed as M6 questions and both are *still* open,
@@ -1031,9 +1033,12 @@ whenever both modes are present in `results-latest.json`.
    Render from `render.yaml`, the UI on Vercel, both auto-deploying from `main`. Both decisions
    it was waiting on are made — the endpoint is rate limited and long-term memory does not ship
    publicly. The landing page's hero question was verified replaying against production.
-4. **Outstanding from M5, and small:** no third-party MCP server has been connected. Point
-   `MCP_SERVERS` at a published Obsidian server, watch one run, record the GIF. The stdio path
-   is written and typechecked; it has just never met a foreign server.
+4. **Search-then-fetch for connectors.** The host binds only search-shaped tools: a query goes
+   in, passages come out. `obsidian_get_file_contents` needs a `filepath` nothing can supply
+   from a query, so it is skipped at bind time and the connector can locate a discussion but
+   never read the document it is in — visible in the first live run, which found that a bug
+   template *is referenced* without being able to say what it contains. A second bind shape
+   (search returns refs, a follow-up fetches one) is the fix and is not built.
 
 Read the public trace before starting — it is still the fastest way to see the graph's actual
 shape, including the second hop:

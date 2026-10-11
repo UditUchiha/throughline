@@ -1,7 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { Check, Copy, Info, MessageSquareQuote } from 'lucide-react';
 import type { Citation } from '@/lib/agent-events';
-import type { RunView } from '@/lib/run-state';
+import { runStages, type RunView } from '@/lib/run-state';
+import { Panel } from './Panel';
 
 /**
  * The answer, with `[n]` markers turned into chips that jump to their evidence.
@@ -22,59 +25,69 @@ export function AnswerPanel({
   const streaming = view.status === 'streaming';
   const text = view.answer?.text ?? view.streamedText;
   const abstained = view.answer?.abstained ?? false;
+  const writing = runStages(view).answer === 'active';
 
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <span>Answer</span>
-        <span className="font-normal normal-case text-ink-500">
-          {view.status === 'finished' && (
-            <>
-              {/* Zero citations is a legitimate outcome when the agent declines —
-                  it is not an error state and must not be dressed as one. */}
+    <Panel
+      title="Answer"
+      icon={MessageSquareQuote}
+      highlight
+      meta={
+        view.status === 'finished' && (
+          <>
+            {/* Zero citations is a legitimate outcome when the agent declines —
+                it is not an error state and must not be dressed as one. */}
+            <span>
               {abstained
                 ? 'abstained'
                 : `${view.citations.length} citation${view.citations.length === 1 ? '' : 's'}`}
+            </span>
+            {text && <CopyButton text={text} />}
+          </>
+        )
+      }
+      bodyClassName="p-4 sm:p-6"
+    >
+      {!text && streaming && (
+        <p className="flex items-center gap-3 text-sm text-muted">
+          {writing ? (
+            <>
+              <TypingDots />
+              Writing the answer from the evidence…
             </>
+          ) : (
+            'The answer appears here once retrieval and reflection are done.'
           )}
-        </span>
-      </div>
+        </p>
+      )}
+      {!text && !streaming && (
+        <p className="text-sm text-muted">No answer — the run ended before one was written.</p>
+      )}
 
-      <div className="p-4 sm:p-5">
-        {!text && streaming && (
-          <p className="font-mono text-xs text-ink-700">
-            synthesising
-            <Ellipsis />
-          </p>
-        )}
-        {!text && !streaming && (
-          <p className="text-sm text-ink-700">Ask a question to see an answer here.</p>
-        )}
+      {text && (
+        <div
+          className={`text-base leading-7 whitespace-pre-wrap ${
+            abstained ? 'text-muted italic' : 'text-fg'
+          }`}
+        >
+          <CitedText
+            text={text}
+            citations={view.citations}
+            onCite={onCite}
+            activeEvidenceId={activeEvidenceId}
+          />
+          {streaming && <Caret />}
+        </div>
+      )}
 
-        {text && (
-          <div
-            className={`text-[0.95rem] leading-[1.75] whitespace-pre-wrap ${
-              abstained ? 'text-ink-500 italic' : 'text-ink-100'
-            }`}
-          >
-            <CitedText
-              text={text}
-              citations={view.citations}
-              onCite={onCite}
-              activeEvidenceId={activeEvidenceId}
-            />
-            {streaming && <Caret />}
-          </div>
-        )}
-
-        {abstained && (
-          <p className="mt-3 border-t border-white/8 pt-3 text-xs text-ink-500">
-            The corpus contains no answer to this, and abstaining is the correct behaviour — it is a
-            scored outcome, not a failure.
-          </p>
-        )}
-      </div>
-    </section>
+      {abstained && (
+        <p className="mt-4 flex gap-2 border-t border-line pt-4 text-sm leading-relaxed text-muted">
+          <Info className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden />
+          The corpus contains no answer to this, and abstaining is the correct behaviour — it is a
+          scored outcome, not a failure.
+        </p>
+      )}
+    </Panel>
   );
 }
 
@@ -107,10 +120,11 @@ function CitedText({
             type="button"
             onClick={() => onCite(evidenceId)}
             title={`Jump to ${evidenceId}`}
-            className={`mx-0.5 inline-flex min-w-6 translate-y-[-1px] items-center justify-center rounded border px-1 align-middle font-mono text-[0.7rem] leading-5 transition ${
+            aria-label={`Citation ${match[1]}: show the evidence`}
+            className={`mx-0.5 inline-flex h-6 min-w-6 -translate-y-px items-center justify-center rounded-md border px-1.5 align-middle font-mono text-xs font-medium not-italic transition-colors duration-150 ${
               activeEvidenceId === evidenceId
-                ? 'border-signal bg-signal text-ink-950'
-                : 'border-signal/40 bg-signal/12 text-signal hover:bg-signal/25'
+                ? 'border-signal bg-signal text-on-signal'
+                : 'border-signal/40 bg-signal/14 text-signal hover:border-signal/70 hover:bg-signal/24'
             }`}
           >
             {match[1]}
@@ -121,15 +135,59 @@ function CitedText({
   );
 }
 
+/** Copies the answer as written, `[n]` markers included — they mean something pasted elsewhere too. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1600);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        // Clipboard access is refused outright on an insecure origin or when the
+        // browser denies the permission; the button simply does not confirm.
+        navigator.clipboard?.writeText(text).then(
+          () => setCopied(true),
+          () => undefined,
+        );
+      }}
+      aria-label={copied ? 'Answer copied' : 'Copy answer'}
+      title={copied ? 'Copied' : 'Copy answer'}
+      className="-my-1 inline-flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-3 hover:text-fg"
+    >
+      {copied ? (
+        <Check className="size-4 text-signal" aria-hidden />
+      ) : (
+        <Copy className="size-4" aria-hidden />
+      )}
+    </button>
+  );
+}
+
 function Caret() {
   return (
     <span
       aria-hidden
-      className="running-bar ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 bg-signal"
+      className="running-bar ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-signal"
     />
   );
 }
 
-function Ellipsis() {
-  return <span className="running-bar">…</span>;
+function TypingDots() {
+  return (
+    <span aria-hidden className="inline-flex items-center gap-1">
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          className="typing-dot size-1.5 rounded-full bg-signal"
+          style={{ animationDelay: `${delay}ms` }}
+        />
+      ))}
+    </span>
+  );
 }

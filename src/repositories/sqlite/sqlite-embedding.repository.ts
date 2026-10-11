@@ -98,4 +98,43 @@ export class SqliteEmbeddingRepository implements EmbeddingRepository {
       k = Math.min(k * 4, totalVectors);
     }
   }
+
+  async neighbours(chunkId: number, topK: number): Promise<EmbeddingSearchHit[]> {
+    if (topK <= 0) return [];
+
+    const row = this.db
+      .prepare<[bigint], { embedding: Buffer }>(
+        'SELECT embedding FROM vec_chunks WHERE chunk_id = ?',
+      )
+      .get(BigInt(chunkId));
+    if (!row) return [];
+
+    // vec0 hands the vector back as the raw little-endian float32 buffer it
+    // stores, not as the JSON that went in, so it has to be decoded before it
+    // can be sent back as a query. `byteOffset` and a length in *floats* are
+    // both required: Node pools small Buffers inside a larger ArrayBuffer, so a
+    // bare `new Float32Array(row.embedding.buffer)` reads whichever neighbouring
+    // allocations happen to share the pool.
+    const vector = Array.from(
+      new Float32Array(
+        row.embedding.buffer,
+        row.embedding.byteOffset,
+        row.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT,
+      ),
+    );
+
+    // Over-fetch by one and drop self: a chunk is always its own nearest
+    // neighbour at distance 0, and vec0 has no way to exclude a rowid in the
+    // MATCH. Without this every caller silently gets topK-1 real neighbours.
+    return this.db
+      .prepare<[string, number], VecRow>(
+        `SELECT chunk_id, distance FROM vec_chunks
+         WHERE embedding MATCH ? AND k = ?
+         ORDER BY distance`,
+      )
+      .all(JSON.stringify(vector), topK + 1)
+      .filter((r) => r.chunk_id !== chunkId)
+      .slice(0, topK)
+      .map((r) => ({ chunkId: r.chunk_id, distance: r.distance }));
+  }
 }

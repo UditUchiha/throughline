@@ -1,5 +1,29 @@
-import type { CorpusSource } from '@/lib/agent-events';
+import { Layers, Mail, MessagesSquare, NotebookPen, type LucideIcon } from 'lucide-react';
+import { KNOWN_SOURCES, type CorpusSource, type KnownSource } from '@/lib/agent-events';
 import { sourceStyle } from '@/lib/presentation';
+
+/**
+ * A shape per source as well as a colour, so the three are distinguishable by
+ * someone who cannot tell amber from violet. Unknown sources get the neutral
+ * stack — the same fallback `sourceStyle` applies to the colour.
+ */
+const SOURCE_ICONS: Record<KnownSource, LucideIcon> = {
+  mail: Mail,
+  chat: MessagesSquare,
+  notes: NotebookPen,
+};
+
+export function SourceIcon({
+  source,
+  className = 'size-3.5',
+}: {
+  source: CorpusSource | null;
+  className?: string;
+}) {
+  const known = KNOWN_SOURCES.find((candidate) => candidate === source);
+  const Icon = known ? SOURCE_ICONS[known] : Layers;
+  return <Icon className={className} aria-hidden />;
+}
 
 /**
  * The one place a source is turned into a visible thing. Everything that shows a
@@ -20,10 +44,10 @@ export function SourceBadge({
   return (
     <span
       title={title}
-      className={`${style.className} inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_oklch,var(--accent)_45%,transparent)] bg-[color-mix(in_oklch,var(--accent)_14%,transparent)] px-2 py-0.5 font-mono text-[0.65rem] tracking-wide text-[var(--accent)]`}
+      className={`${style.className} inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-accent/40 bg-accent/14 px-2 py-0.5 font-mono text-xs text-accent`}
     >
-      <span className="size-1.5 rounded-full bg-[var(--accent)]" aria-hidden />
-      {children ?? style.label}
+      <SourceIcon source={source} className="size-3.5 shrink-0" />
+      <span className="truncate">{children ?? style.label}</span>
     </span>
   );
 }

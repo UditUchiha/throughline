@@ -50,6 +50,10 @@ export class SqliteChunkRepository implements ChunkRepository {
     return insertAll(chunks).map(toChunk);
   }
 
+  async findAll(): Promise<Chunk[]> {
+    return this.db.prepare<[], ChunkRow>('SELECT * FROM chunks ORDER BY id').all().map(toChunk);
+  }
+
   async findById(id: number): Promise<Chunk | null> {
     const row = this.db.prepare<[number], ChunkRow>('SELECT * FROM chunks WHERE id = ?').get(id);
     return row ? toChunk(row) : null;

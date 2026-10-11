@@ -18,11 +18,13 @@ import {
   type RunView,
 } from '@/lib/run-state';
 import { clearStoredSession, readStoredSession, storeSession } from '@/lib/session';
+import { CornerDownRight, RotateCcw } from 'lucide-react';
 import { AskBar } from '@/components/AskBar';
 import { AnswerPanel } from '@/components/AnswerPanel';
 import { EvidencePanel } from '@/components/EvidencePanel';
 import { ExampleQuestions } from '@/components/ExampleQuestions';
 import { HeroQuestion, heroIsReplayable, isHeroQuestion } from '@/components/HeroQuestion';
+import { HowItWorks, Intro } from '@/components/Landing';
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { PlanPanel } from '@/components/PlanPanel';
 import {
@@ -31,7 +33,9 @@ import {
   FailureBanner,
   ReplayBanner,
 } from '@/components/RunBanners';
+import { RunProgress } from '@/components/RunProgress';
 import { RunStats } from '@/components/RunStats';
+import { SiteFooter, SiteHeader } from '@/components/SiteChrome';
 import { ToolTimeline } from '@/components/ToolTimeline';
 import { TriageCard } from '@/components/TriageCard';
 
@@ -277,109 +281,132 @@ export default function Page() {
     setFocus({ evidenceId, nonce: citeNonce.current });
   }, []);
 
+  const idle = view.status === 'idle';
+
+  const pick = (picked: string) => {
+    setQuestion(picked);
+    ask(picked);
+  };
+
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
-      <Header demo={demo} busy={busy} turn={turn} sessionId={sessionId} />
+    <>
+      <SiteHeader demo={demo} busy={busy} turn={turn} sessionId={sessionId} />
 
-      <div className="mt-6 space-y-4">
-        <AskBar
-          value={question}
-          onChange={setQuestion}
-          onSubmit={() => ask(question)}
-          onStop={stop}
-          busy={busy}
-          demo={demo}
-          onDemoChange={handleDemoChange}
-        />
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6">
+        {idle && <Intro />}
 
-        {waking && !connectionError && <ColdStartBanner apiUrl={API_URL} />}
-        {connectionError && (
-          <ConnectionBanner error={connectionError.message} status={connectionError.status} apiUrl={API_URL} />
-        )}
-        {view.replay && <ReplayBanner replay={view.replay} />}
-        {view.error && !connectionError && <FailureBanner error={view.error} demo={demo} />}
-
-        {view.status === 'idle' && (
-          <HeroQuestion
+        <div className={`space-y-5 ${idle ? 'mt-8 sm:mt-10' : 'mt-6 sm:mt-8'}`}>
+          <AskBar
+            value={question}
+            onChange={setQuestion}
+            onSubmit={() => ask(question)}
+            onStop={stop}
+            busy={busy}
             demo={demo}
-            disabled={busy}
-            available={heroAvailable}
-            onPick={(picked) => {
-              setQuestion(picked);
-              ask(picked);
-            }}
+            onDemoChange={handleDemoChange}
+            followUp={sessionId !== null}
           />
-        )}
 
-        {view.status === 'idle' && (
-          <ExampleQuestions
-            examples={otherExamples}
-            demoRuns={otherDemoRuns}
-            demo={demo}
-            disabled={busy}
-            onPick={(picked) => {
-              setQuestion(picked);
-              ask(picked);
-            }}
-          />
-        )}
+          {waking && !connectionError && <ColdStartBanner apiUrl={API_URL} />}
+          {connectionError && (
+            <ConnectionBanner
+              error={connectionError.message}
+              status={connectionError.status}
+              apiUrl={API_URL}
+            />
+          )}
+          {view.replay && <ReplayBanner replay={view.replay} />}
+          {view.error && !connectionError && <FailureBanner error={view.error} demo={demo} />}
 
-        {view.status !== 'idle' && (
-          <>
-            <div className="space-y-1.5 px-1">
-              <p className="text-lg leading-snug font-medium text-balance text-ink-100 sm:text-xl">
-                {view.question}
-              </p>
-              {view.resolvedQuestion && <ResolvedQuestionNote resolved={view.resolvedQuestion} />}
-            </div>
-
-            {/* Trace on the left, payoff on the right. On a phone this collapses to
-                one column in graph order — triage, plan, retrieval, then answer —
-                which is also the order the events arrive in. */}
-            <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
-              <div className="min-w-0 space-y-4 lg:col-span-5">
-                <TriageCard view={view} />
-                <PlanPanel view={view} />
-                <ToolTimeline view={view} />
-                <RunStats view={view} elapsedMs={elapsedMs} />
-                <MemoryPanel view={view} />
-              </div>
-
-              <div className="min-w-0 space-y-4 lg:col-span-7">
-                <AnswerPanel
-                  view={view}
-                  onCite={cite}
-                  activeEvidenceId={focus?.evidenceId ?? null}
+          {idle && (
+            <>
+              <div className="grid gap-5 lg:grid-cols-12">
+                <HeroQuestion
+                  demo={demo}
+                  disabled={busy}
+                  available={heroAvailable}
+                  onPick={pick}
+                  className="lg:col-span-7"
                 />
-                <EvidencePanel view={view} focus={focus} />
+                <HowItWorks
+                  wide={!heroAvailable}
+                  className={heroAvailable ? 'lg:col-span-5' : 'lg:col-span-12'}
+                />
               </div>
-            </div>
 
-            {/* Asking another question in the bar above *continues* the session,
-                which is the behaviour worth having by default. This is the way
-                out of it: a visitor who has moved on to an unrelated subject
-                should not have their pronouns resolved against the old one. */}
-            <button
-              type="button"
-              onClick={() => {
-                abortRef.current?.abort();
-                setView(emptyRun);
-                setFocus(null);
-                setQuestion('');
-                setSessionId(null);
-                setTurn(0);
-                clearStoredSession();
-              }}
-              className="font-mono text-[0.7rem] text-ink-500 underline decoration-dotted underline-offset-4 transition hover:text-ink-300"
-            >
-              start a new session
-            </button>
-          </>
-        )}
-      </div>
+              <ExampleQuestions
+                examples={otherExamples}
+                demoRuns={otherDemoRuns}
+                demo={demo}
+                disabled={busy}
+                onPick={pick}
+              />
+            </>
+          )}
 
-      <Footer />
-    </main>
+          {!idle && (
+            <>
+              <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                <div className="min-w-0 space-y-2">
+                  <p className="eyebrow text-faint">Question</p>
+                  <h1 className="text-xl leading-snug font-semibold text-balance text-fg sm:text-2xl">
+                    {view.question}
+                  </h1>
+                  {view.resolvedQuestion && <ResolvedQuestionNote resolved={view.resolvedQuestion} />}
+                </div>
+
+                {/* Asking another question in the bar above *continues* the session,
+                    which is the behaviour worth having by default. This is the way
+                    out of it: a visitor who has moved on to an unrelated subject
+                    should not have their pronouns resolved against the old one. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    setView(emptyRun);
+                    setFocus(null);
+                    setQuestion('');
+                    setSessionId(null);
+                    setTurn(0);
+                    clearStoredSession();
+                  }}
+                  className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-lg border border-line bg-surface/70 px-3.5 text-sm text-fg-2 transition-colors duration-150 hover:border-line-strong hover:text-fg"
+                >
+                  <RotateCcw className="size-4" aria-hidden />
+                  New session
+                </button>
+              </div>
+
+              <RunProgress view={view} elapsedMs={elapsedMs} />
+
+              {/* Trace on the left, payoff on the right. On a phone this collapses to
+                  one column in graph order — triage, plan, retrieval, then answer —
+                  which is also the order the events arrive in. */}
+              <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
+                <div className="min-w-0 space-y-5 lg:col-span-5">
+                  <TriageCard view={view} />
+                  <PlanPanel view={view} />
+                  <ToolTimeline view={view} />
+                  <RunStats view={view} elapsedMs={elapsedMs} />
+                  <MemoryPanel view={view} />
+                </div>
+
+                <div className="min-w-0 space-y-5 lg:col-span-7">
+                  <AnswerPanel
+                    view={view}
+                    onCite={cite}
+                    activeEvidenceId={focus?.evidenceId ?? null}
+                  />
+                  <EvidencePanel view={view} focus={focus} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </main>
+
+      <SiteFooter apiUrl={API_URL} />
+    </>
   );
 }
 
@@ -392,78 +419,12 @@ export default function Page() {
  */
 function ResolvedQuestionNote({ resolved }: { resolved: ResolvedQuestion }) {
   return (
-    <p className="font-mono text-[0.7rem] leading-relaxed text-ink-500">
-      <span className="text-ink-700">read as</span> {resolved.resolved}
+    <p className="flex items-start gap-1.5 text-sm leading-relaxed text-muted">
+      <CornerDownRight className="mt-0.5 size-4 shrink-0 text-faint" aria-hidden />
+      <span>
+        <span className="font-mono text-xs text-faint">read as</span> {resolved.resolved}
+      </span>
     </p>
-  );
-}
-
-function Header({
-  demo,
-  busy,
-  turn,
-  sessionId,
-}: {
-  demo: boolean;
-  busy: boolean;
-  turn: number;
-  sessionId: string | null;
-}) {
-  return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink-100 sm:text-3xl">
-          throughline
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-500">
-          Some answers are not in any one document — the cause is in a chat thread, the sign-off is
-          in an email. Ordinary RAG retrieves the nearest passage and stops. This agent plans the
-          decomposition, searches mail, chat and notes in parallel, notices what it is still
-          missing, and cites the passage behind every claim.
-        </p>
-      </div>
-
-      <div className="flex w-fit shrink-0 items-center gap-2">
-        {/* Turn 2 onward only: on turn 1 there is no conversation to be in, and a
-            badge reading "turn 1" would suggest continuity that does not exist. */}
-        {sessionId && turn > 1 && (
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-ink-900/60 px-2.5 py-1 font-mono text-[0.65rem] tracking-wide text-ink-500"
-            title={`Session ${sessionId}`}
-          >
-            turn {turn}
-          </span>
-        )}
-
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[0.65rem] tracking-wide ${
-            demo
-              ? 'border-warn/40 bg-warn/10 text-warn'
-              : 'border-signal/40 bg-signal/10 text-signal'
-          }`}
-        >
-          <span
-            className={`size-1.5 rounded-full ${demo ? 'bg-warn' : 'bg-signal'} ${
-              busy ? 'running-bar' : ''
-            }`}
-            aria-hidden
-          />
-          {demo ? 'replay' : 'live'}
-        </span>
-      </div>
-    </header>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="mt-10 border-t border-white/8 pt-4 font-mono text-[0.65rem] leading-relaxed text-ink-700">
-      <p>
-        Corpus: &quot;Lumen Labs&quot;, 172 synthetic documents (83 mail / 48 chat / 41 notes) built
-        from a hand-authored fact ledger. No real data, no sign-in.
-      </p>
-      <p className="mt-1">API: {API_URL}</p>
-    </footer>
   );
 }
 

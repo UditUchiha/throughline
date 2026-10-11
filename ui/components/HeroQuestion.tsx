@@ -1,5 +1,6 @@
 'use client';
 
+import { CircleCheck, Play, Sparkles } from 'lucide-react';
 import type { DemoRun } from '@/lib/api';
 import { SourceBadge } from './SourceBadge';
 
@@ -67,11 +68,19 @@ export function isHeroQuestion(question: string): boolean {
   return normalise(question) === normalise(HERO_QUESTION);
 }
 
+/** What the run will show, so a first-time visitor knows where to look. */
+const WATCH_FOR = [
+  'Sub-questions fan out to separate sources, in parallel.',
+  'Evidence arrives grouped by the source it came from.',
+  'Each citation in the answer jumps to the exact passage behind it.',
+];
+
 export function HeroQuestion({
   demo,
   disabled,
   available,
   onPick,
+  className = '',
 }: {
   demo: boolean;
   disabled: boolean;
@@ -83,20 +92,27 @@ export function HeroQuestion({
    */
   available: boolean;
   onPick: (question: string) => void;
+  className?: string;
 }) {
   if (!available) return null;
 
   return (
-    <section className="rounded-xl border border-signal/25 bg-gradient-to-b from-ink-900/80 to-ink-900/40 p-4 sm:p-5">
-      <p className="font-mono text-[0.65rem] tracking-widest text-signal/80 uppercase">
-        Start here
-      </p>
+    <section className={`animate-enter relative isolate overflow-hidden flex flex-col rounded-2xl border border-signal/35 bg-surface p-5 shadow-[var(--panel-shadow)] sm:p-7 ${className}`}>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -top-28 -right-20 -z-10 size-72 rounded-full bg-signal/12 blur-3xl"
+      />
 
-      <p className="mt-2 text-base leading-snug font-medium text-balance text-ink-100 sm:text-lg">
+      <h2 className="eyebrow flex items-center gap-2 text-signal">
+        <Sparkles className="size-4" aria-hidden />
+        Start here
+      </h2>
+
+      <p className="mt-3 text-xl leading-snug font-semibold text-balance text-fg sm:text-2xl">
         {HERO_QUESTION}
       </p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-500">
+      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm text-muted">
         <span>The owner is named in</span>
         <SourceBadge source="chat" />
         <span>· the root cause is written up in</span>
@@ -104,17 +120,27 @@ export function HeroQuestion({
         <span>· no single document holds both.</span>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
+      <ul className="mt-5 space-y-2 border-t border-line pt-5 text-sm text-fg-2">
+        {WATCH_FOR.map((item) => (
+          <li key={item} className="flex gap-2.5">
+            <CircleCheck className="mt-0.5 size-4 shrink-0 text-signal" aria-hidden />
+            {item}
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-3 pt-6">
         <button
           type="button"
           disabled={disabled}
           onClick={() => onPick(HERO_QUESTION)}
-          className="rounded-lg border border-signal/40 bg-signal/10 px-3.5 py-2 text-sm font-medium text-signal transition hover:border-signal/70 hover:bg-signal/20 disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-11 items-center gap-2 rounded-xl bg-signal px-5 text-sm font-semibold text-on-signal shadow-sm transition-[filter,transform] duration-150 enabled:hover:brightness-110 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
         >
+          <Play className="size-4" fill="currentColor" aria-hidden />
           Watch it answer this
         </button>
 
-        <span className="font-mono text-[0.65rem] leading-relaxed text-ink-700">
+        <span className="text-xs leading-relaxed text-muted">
           {demo
             ? 'Replays a recorded run — no model calls.'
             : 'Runs live — roughly 25s, four model calls.'}

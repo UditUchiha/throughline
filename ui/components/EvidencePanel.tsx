@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, FileStack } from 'lucide-react';
 import type { CorpusSource, Evidence } from '@/lib/agent-events';
 import { markersByEvidenceId, type RunView } from '@/lib/run-state';
 import { relevanceFraction, sourceStyle } from '@/lib/presentation';
+import { Panel, Waiting } from './Panel';
 import { SourceBadge } from './SourceBadge';
 
 export function evidenceDomId(evidenceId: string): string {
@@ -65,7 +67,7 @@ export function EvidencePanel({
   const toggle = (evidenceId: string): void => {
     if (isExpanded(evidenceId)) {
       // A card opened by a citation is not in `expanded`, so collapsing it has to
-      // record that this jump was dismissed — otherwise "−" would do nothing.
+      // record that this jump was dismissed — otherwise the chevron would do nothing.
       if (focusOpen && focus.evidenceId === evidenceId) setCollapsedNonce(focus.nonce);
       setExpanded((current) => {
         const next = new Set(current);
@@ -78,30 +80,28 @@ export function EvidencePanel({
   };
 
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <span>Evidence</span>
-        <span className="font-normal normal-case text-ink-500">
-          {view.evidence.length === 0
-            ? 'none yet'
-            : `${view.evidence.length} chunks · ${groups.length} source${
-                groups.length === 1 ? '' : 's'
-              }`}
-        </span>
-      </div>
-
-      <div className="space-y-5 p-3 sm:p-4">
+    <Panel
+      title="Evidence"
+      icon={FileStack}
+      meta={
+        view.evidence.length === 0
+          ? 'none yet'
+          : `${view.evidence.length} chunks · ${groups.length} source${groups.length === 1 ? '' : 's'}`
+      }
+    >
+      <div className="space-y-6">
         {view.evidence.length === 0 && (
-          <p className="font-mono text-xs text-ink-700">nothing retrieved yet…</p>
+          <Waiting live={view.status === 'streaming'}>Nothing retrieved yet…</Waiting>
         )}
 
         {groups.map((group) => (
           <div key={group.source}>
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2.5 flex items-center gap-2">
               <SourceBadge source={group.source === 'unknown' ? null : group.source} />
-              <span className="font-mono text-[0.65rem] text-ink-700">
+              <span className="font-mono text-xs text-faint">
                 {group.evidence.length} chunk{group.evidence.length === 1 ? '' : 's'}
               </span>
+              <span aria-hidden className="h-px flex-1 bg-line" />
             </div>
 
             <ul className="space-y-2">
@@ -119,7 +119,7 @@ export function EvidencePanel({
           </div>
         ))}
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -137,11 +137,12 @@ function EvidenceCard({
   onToggle: () => void;
 }) {
   const style = sourceStyle(evidence.source);
+  const bodyId = `${evidenceDomId(evidence.evidenceId)}-body`;
 
   return (
     <li
       id={evidenceDomId(evidence.evidenceId)}
-      className={`${style.className} scroll-mt-4 rounded-lg border border-white/8 bg-ink-900/50 ${
+      className={`${style.className} animate-enter scroll-mt-24 rounded-xl border border-line bg-surface-2/60 shadow-[inset_3px_0_0_0_var(--accent)] transition-colors duration-200 hover:border-line-strong ${
         flashing ? 'cite-target' : ''
       }`}
     >
@@ -149,63 +150,72 @@ function EvidenceCard({
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className="w-full p-3 text-left"
+        aria-controls={bodyId}
+        className="w-full rounded-xl p-3.5 pl-4 text-left"
       >
-        <div className="flex items-start gap-2.5">
+        <div className="flex items-start gap-3">
           {/* Numbered only when the answer cited it. The number is the citation
               marker from the API, never this card's position — synthesis re-ranks
               evidence by distance before numbering it. */}
           {marker !== undefined ? (
-            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border border-signal/50 bg-signal/15 font-mono text-[0.65rem] text-signal">
+            <span
+              className="mt-px flex size-6 shrink-0 items-center justify-center rounded-md border border-signal/40 bg-signal/14 font-mono text-xs font-medium text-signal"
+              title={`Cited as [${marker}]`}
+            >
               {marker}
             </span>
           ) : (
-            <span className="mt-0.5 size-5 shrink-0" aria-hidden />
+            <span className="mt-px size-6 shrink-0" aria-hidden />
           )}
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-ink-100">{evidence.title}</p>
-            <p className="truncate font-mono text-[0.65rem] text-ink-700">
+            <p className="line-clamp-2 text-sm leading-snug font-medium text-fg">
+              {evidence.title}
+            </p>
+            <p className="mt-0.5 truncate font-mono text-xs text-faint">
               {evidence.docId ?? evidence.evidenceId}
             </p>
           </div>
 
-          <span className="shrink-0 font-mono text-[0.6rem] text-ink-700">
-            {expanded ? '−' : '+'}
-          </span>
+          <ChevronDown
+            className={`mt-0.5 size-4 shrink-0 text-muted transition-transform duration-200 ${
+              expanded ? 'rotate-180' : ''
+            }`}
+            aria-hidden
+          />
         </div>
 
-        <div className="mt-2 flex items-center gap-2">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-ink-950/70">
+        <div className="mt-3 flex items-center gap-2.5 pl-9">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3">
             <div
-              className="h-full rounded-full bg-[var(--accent)]"
+              className="h-full rounded-full bg-accent"
               style={{ width: `${relevanceFraction(evidence.distance) * 100}%` }}
             />
           </div>
           {/* Labelled "distance", not "score": lower is better, and calling it a
               score would invite reading the bar backwards. */}
           <span
-            className="shrink-0 font-mono text-[0.6rem] text-ink-700"
+            className="shrink-0 font-mono text-xs text-muted tabular-nums"
             title="Vector distance — lower is more similar"
           >
             d {evidence.distance.toFixed(3)}
           </span>
-          <span className="shrink-0 font-mono text-[0.6rem] text-ink-700">
-            {evidence.retrievedBy}
-          </span>
+          <span className="shrink-0 font-mono text-xs text-faint">{evidence.retrievedBy}</span>
         </div>
 
         {!expanded && (
-          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-500">{evidence.text}</p>
+          <p className="mt-2.5 line-clamp-2 pl-9 text-sm leading-relaxed text-muted">
+            {evidence.text}
+          </p>
         )}
       </button>
 
       {expanded && (
-        <div className="border-t border-white/8 px-3 pt-2.5 pb-3">
-          <p className="max-h-80 overflow-y-auto text-xs leading-relaxed whitespace-pre-wrap text-ink-300">
+        <div id={bodyId} className="border-t border-line px-4 pt-3 pb-4 sm:pl-[3.25rem]">
+          <p className="max-h-80 overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap text-fg-2">
             {evidence.text}
           </p>
-          <p className="mt-2 font-mono text-[0.6rem] text-ink-700">
+          <p className="mt-3 font-mono text-xs text-faint">
             {evidence.evidenceId} · retrieved by {evidence.tool}
           </p>
         </div>

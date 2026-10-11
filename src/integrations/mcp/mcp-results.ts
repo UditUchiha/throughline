@@ -27,6 +27,9 @@ import { externalChunkId, type RetrievedChunk } from '../../rag/retrieved-chunk.
 const CALIBRATED_BEST = 0.45;
 const CALIBRATED_WORST = 0.62;
 
+/** Between snippets joined from one document, so a reader sees the gap. */
+const SNIPPET_SEPARATOR = '\n…\n';
+
 /** How much of one passage reaches the prompt. Roughly one corpus chunk. */
 const MAX_PASSAGE_CHARS = 4000;
 
@@ -68,10 +71,18 @@ interface StructuredResult {
   id?: unknown;
   path?: unknown;
   uri?: unknown;
+  /** What a file-oriented server calls its path — Obsidian sends `filename`. */
+  filename?: unknown;
+  file?: unknown;
   title?: unknown;
   text?: unknown;
   content?: unknown;
   snippet?: unknown;
+  /**
+   * Hits within one document, for a server that reports *where* it matched
+   * rather than returning a passage. See {@link joinMatches}.
+   */
+  matches?: unknown;
   score?: unknown;
 }
 
@@ -186,7 +197,7 @@ function errorMessage(result: McpToolResult): string {
  *   text blocks are the better guess.
  */
 function readStructured(result: McpToolResult): Passage[] | undefined {
-  const structured = result.structuredContent;
+  const structured = result.structuredContent ?? jsonInTextBlocks(result);
   const list = Array.isArray(structured)
     ? structured
     : isRecord(structured) && Array.isArray(structured.results)
@@ -201,16 +212,79 @@ function readStructured(result: McpToolResult): Passage[] | undefined {
 }
 
 function toPassage(entry: StructuredResult): Passage | null {
-  const text = firstString(entry.text, entry.content, entry.snippet);
+  const text = firstString(entry.text, entry.content, entry.snippet) ?? joinMatches(entry.matches);
   if (!text) return null;
 
-  const score = entry.score;
   return {
-    ref: firstString(entry.path, entry.uri, entry.id),
-    title: firstString(entry.title, entry.path, entry.uri),
+    ref: firstString(entry.path, entry.uri, entry.id, entry.filename, entry.file),
+    title: firstString(entry.title, entry.path, entry.uri, entry.filename, entry.file),
     text,
-    relevance: typeof score === 'number' && Number.isFinite(score) ? score : undefined,
+    relevance: usableRelevance(entry.score),
   };
+}
+
+/**
+ * A result that reports *where* it matched rather than carrying a passage.
+ *
+ * Obsidian's search is the shape this exists for: one entry per file, with the
+ * hits as `matches: [{ context }]`. Joining the contexts reconstructs something
+ * quotable; taking only the first would throw away the rest of the evidence in
+ * that file, and taking the filename alone would cite a document nobody read.
+ */
+function joinMatches(matches: unknown): string | undefined {
+  if (!Array.isArray(matches)) return undefined;
+
+  const contexts = matches
+    .filter(isRecord)
+    .map((match) => firstString(match.context, match.text, match.excerpt, match.snippet))
+    .filter((context): context is string => context !== undefined);
+
+  return contexts.length > 0 ? contexts.join(SNIPPET_SEPARATOR) : undefined;
+}
+
+/**
+ * A server's own score, but only when it is on the scale this system assumes.
+ *
+ * `calibrateDistance` clamps to 0..1 and reads higher as better. A server
+ * scoring on any other scale would be silently flattened against an end of that
+ * band — Obsidian returns small *negative* numbers (-0.16 beating -0.21), every
+ * one of which clamps to 0 and lands every result at the worst distance a
+ * connector can produce, destroying the ordering the server took care to send.
+ *
+ * Rank is the better guess whenever the scale is unknown: the list is already
+ * ordered, and `relevanceFromRank` reads that ordering without inventing a
+ * magnitude for it.
+ */
+function usableRelevance(score: unknown): number | undefined {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return undefined;
+  return score >= 0 && score <= 1 ? score : undefined;
+}
+
+/**
+ * A JSON array that arrived as text, which is how most MCP servers in the wild
+ * still answer: `structuredContent` is a late addition to the protocol, so a
+ * server with perfectly good structure usually serialises it into one text
+ * block. Without this the whole result set becomes a single giant passage —
+ * every hit mashed together under one citation, attributed to no document.
+ *
+ * Only a parse that yields a list counts. Prose that happens to start with a
+ * brace is not structure, and falling through to the text blocks reads it
+ * correctly as one passage.
+ */
+function jsonInTextBlocks(result: McpToolResult): unknown {
+  for (const passage of readTextBlocks(result)) {
+    const trimmed = passage.text.trim();
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) continue;
+
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+      if (isRecord(parsed) && Array.isArray(parsed.results)) return parsed;
+    } catch {
+      // Not JSON. The text blocks remain the correct reading.
+    }
+  }
+  return undefined;
 }
 
 /**
