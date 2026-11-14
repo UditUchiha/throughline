@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, FileStack } from 'lucide-react';
 import type { CorpusSource, Evidence } from '@/lib/agent-events';
 import { markersByEvidenceId, type RunView } from '@/lib/run-state';
-import { relevanceFraction, sourceStyle } from '@/lib/presentation';
+import { sourceStyle } from '@/lib/presentation';
 import { Panel, Waiting } from './Panel';
 import { SourceBadge } from './SourceBadge';
 
@@ -40,7 +40,18 @@ export function EvidencePanel({
   const [collapsedNonce, setCollapsedNonce] = useState<number | null>(null);
 
   const markers = useMemo(() => markersByEvidenceId(view.citations), [view.citations]);
-  const groups = useMemo(() => groupBySource(view.evidence), [view.evidence]);
+  // Cited passages are the proof; the rest is what it read on the way. Until the
+  // answer names its citations (or when it abstains and names none) there is no
+  // split to make, and everything retrieved is the story.
+  const { cited, rest } = useMemo(() => {
+    if (markers.size === 0) return { cited: view.evidence, rest: [] };
+    return {
+      cited: view.evidence.filter((item) => markers.has(item.evidenceId)),
+      rest: view.evidence.filter((item) => !markers.has(item.evidenceId)),
+    };
+  }, [view.evidence, markers]);
+  const citedGroups = useMemo(() => groupBySource(cited), [cited]);
+  const restGroups = useMemo(() => groupBySource(rest), [rest]);
 
   // Expansion is *derived* from focus rather than pushed into state by the effect
   // below. That is not only tidier: setting it in the effect meant the scroll ran
@@ -79,14 +90,42 @@ export function EvidencePanel({
     setExpanded((current) => new Set(current).add(evidenceId));
   };
 
+  const renderGroups = (groups: ReturnType<typeof groupBySource>) =>
+    groups.map((group) => (
+      <div key={group.source}>
+        <div className="mb-2.5 flex items-center gap-2">
+          <SourceBadge source={group.source === 'unknown' ? null : group.source} />
+          <span className="font-mono text-xs text-faint">
+            {group.evidence.length} passage{group.evidence.length === 1 ? '' : 's'}
+          </span>
+          <span aria-hidden className="h-px flex-1 bg-line" />
+        </div>
+
+        <ul className="space-y-2">
+          {group.evidence.map((evidence) => (
+            <EvidenceCard
+              key={evidence.evidenceId}
+              evidence={evidence}
+              marker={markers.get(evidence.evidenceId)}
+              expanded={isExpanded(evidence.evidenceId)}
+              flashing={flashingId === evidence.evidenceId}
+              onToggle={() => toggle(evidence.evidenceId)}
+            />
+          ))}
+        </ul>
+      </div>
+    ));
+
   return (
     <Panel
-      title="Evidence"
+      title="Where this came from"
       icon={FileStack}
       meta={
         view.evidence.length === 0
           ? 'none yet'
-          : `${view.evidence.length} chunks · ${groups.length} source${groups.length === 1 ? '' : 's'}`
+          : markers.size === 0
+            ? `${view.evidence.length} passage${view.evidence.length === 1 ? '' : 's'} read`
+            : `${cited.length} cited · ${view.evidence.length} read`
       }
     >
       <div className="space-y-6">
@@ -94,30 +133,20 @@ export function EvidencePanel({
           <Waiting live={view.status === 'streaming'}>Nothing retrieved yet…</Waiting>
         )}
 
-        {groups.map((group) => (
-          <div key={group.source}>
-            <div className="mb-2.5 flex items-center gap-2">
-              <SourceBadge source={group.source === 'unknown' ? null : group.source} />
-              <span className="font-mono text-xs text-faint">
-                {group.evidence.length} chunk{group.evidence.length === 1 ? '' : 's'}
-              </span>
-              <span aria-hidden className="h-px flex-1 bg-line" />
-            </div>
+        {renderGroups(citedGroups)}
 
-            <ul className="space-y-2">
-              {group.evidence.map((evidence) => (
-                <EvidenceCard
-                  key={evidence.evidenceId}
-                  evidence={evidence}
-                  marker={markers.get(evidence.evidenceId)}
-                  expanded={isExpanded(evidence.evidenceId)}
-                  flashing={flashingId === evidence.evidenceId}
-                  onToggle={() => toggle(evidence.evidenceId)}
-                />
-              ))}
-            </ul>
-          </div>
-        ))}
+        {rest.length > 0 && (
+          <details className="group">
+            <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg border border-line bg-surface-2/60 px-3 text-sm text-fg-2 transition-colors duration-150 select-none hover:border-line-strong hover:text-fg [&::-webkit-details-marker]:hidden">
+              <ChevronDown
+                className="size-4 transition-transform duration-200 group-open:rotate-180"
+                aria-hidden
+              />
+              {rest.length} more passage{rest.length === 1 ? '' : 's'} it read but did not cite
+            </summary>
+            <div className="mt-4 space-y-6">{renderGroups(restGroups)}</div>
+          </details>
+        )}
       </div>
     </Panel>
   );
@@ -185,24 +214,6 @@ function EvidenceCard({
           />
         </div>
 
-        <div className="mt-3 flex items-center gap-2.5 pl-9">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3">
-            <div
-              className="h-full rounded-full bg-accent"
-              style={{ width: `${relevanceFraction(evidence.distance) * 100}%` }}
-            />
-          </div>
-          {/* Labelled "distance", not "score": lower is better, and calling it a
-              score would invite reading the bar backwards. */}
-          <span
-            className="shrink-0 font-mono text-xs text-muted tabular-nums"
-            title="Vector distance — lower is more similar"
-          >
-            d {evidence.distance.toFixed(3)}
-          </span>
-          <span className="shrink-0 font-mono text-xs text-faint">{evidence.retrievedBy}</span>
-        </div>
-
         {!expanded && (
           <p className="mt-2.5 line-clamp-2 pl-9 text-sm leading-relaxed text-muted">
             {evidence.text}
@@ -215,8 +226,14 @@ function EvidenceCard({
           <p className="max-h-80 overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap text-fg-2">
             {evidence.text}
           </p>
-          <p className="mt-3 font-mono text-xs text-faint">
-            {evidence.evidenceId} · retrieved by {evidence.tool}
+          {/* The numbers live here, behind a click: "distance", not "score", because
+              lower is better and a score would be read the other way round. */}
+          <p
+            className="mt-3 font-mono text-xs text-faint tabular-nums"
+            title="Vector distance — lower is more similar"
+          >
+            {evidence.evidenceId} · distance {evidence.distance.toFixed(3)} · {evidence.retrievedBy}{' '}
+            via {evidence.tool}
           </p>
         </div>
       )}
