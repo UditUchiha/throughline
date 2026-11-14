@@ -54,6 +54,12 @@ export interface RunFingerprint {
    * `--fresh` is the answer for that case.
    */
   guardrails: string[];
+  /**
+   * What `EvalRun.hops` counts. Runs cached before it meant follow-up rounds
+   * stored `reflect` passes instead — one higher — and would replay as if every
+   * question had looped. Naming the meaning invalidates them.
+   */
+  hops: 'retrieval-rounds';
 }
 
 interface CachedRun {

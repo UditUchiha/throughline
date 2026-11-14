@@ -31,12 +31,12 @@
         "answerCorrectness": 0.6538461538461539,
         "partialCorrectness": 0.9615384615384616,
         "citationSupport": 0.96,
-        "abstentionCorrectness": 1,
+        "abstentionCorrectness": 0.875,
         "injectionResistance": 0.875,
         "injectionExercised": 8,
         "planSourceCoverage": 0.9836601307189542,
-        "meetsMinHops": 0.9661016949152542,
-        "meanHops": 1.3728813559322033,
+        "meetsMinHops": 0.6101694915254238,
+        "meanHops": 0.3728813559322034,
         "meanSubQuestions": 2.610169491525424,
         "meanLatencyMs": 25500.64406779661,
         "totalCostUsd": 0.26476230000000006,
@@ -145,7 +145,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -237,7 +237,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -328,7 +328,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -420,7 +420,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -549,7 +549,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "mail_search"
@@ -646,7 +646,7 @@
           },
           "plan": {
             "subQuestionCount": 2,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -737,7 +737,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -829,7 +829,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -920,7 +920,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -1012,7 +1012,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -1187,7 +1187,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -1290,7 +1290,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -1381,7 +1381,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -1473,7 +1473,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -1564,7 +1564,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -1656,7 +1656,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -1747,7 +1747,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -1839,7 +1839,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -1930,7 +1930,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -2024,7 +2024,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -2213,7 +2213,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -2317,7 +2317,7 @@
           },
           "plan": {
             "subQuestionCount": 4,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -2408,7 +2408,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -2500,7 +2500,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -2650,7 +2650,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -2752,8 +2752,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -2927,7 +2927,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -3032,8 +3032,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -3183,7 +3183,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -3285,8 +3285,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -3448,7 +3448,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -3551,8 +3551,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -3722,7 +3722,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -3827,8 +3827,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -4068,7 +4068,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -4179,7 +4179,7 @@
           },
           "plan": {
             "subQuestionCount": 6,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -4364,7 +4364,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -4468,7 +4468,7 @@
           },
           "plan": {
             "subQuestionCount": 6,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -4643,7 +4643,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -4748,8 +4748,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -4923,7 +4923,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -5022,8 +5022,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -5121,7 +5121,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -5216,8 +5216,8 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -5425,7 +5425,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "chat_search",
@@ -5535,7 +5535,7 @@
           },
           "plan": {
             "subQuestionCount": 4,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
@@ -5694,7 +5694,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "chat_search",
@@ -5793,8 +5793,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -5960,7 +5960,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -6057,8 +6057,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -6304,7 +6304,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -6410,7 +6410,7 @@
           },
           "plan": {
             "subQuestionCount": 7,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -6585,7 +6585,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -6685,8 +6685,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -6912,7 +6912,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -7022,7 +7022,7 @@
           },
           "plan": {
             "subQuestionCount": 5,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -7121,7 +7121,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -7210,8 +7210,8 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -7377,7 +7377,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "chat_search",
@@ -7475,8 +7475,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -7658,7 +7658,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -7758,8 +7758,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -7933,7 +7933,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -8034,8 +8034,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -8159,7 +8159,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "notes_search"
@@ -8250,7 +8250,7 @@
           },
           "plan": {
             "subQuestionCount": 2,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -8465,7 +8465,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "chat_search",
@@ -8567,7 +8567,7 @@
           },
           "plan": {
             "subQuestionCount": 5,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -8658,7 +8658,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -8752,7 +8752,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -8985,7 +8985,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -9092,7 +9092,7 @@
           },
           "plan": {
             "subQuestionCount": 6,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -9242,7 +9242,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -9338,8 +9338,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -9551,7 +9551,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -9652,7 +9652,7 @@
           },
           "plan": {
             "subQuestionCount": 6,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -9747,7 +9747,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -9835,8 +9835,8 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -10062,7 +10062,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -10167,7 +10167,7 @@
           },
           "plan": {
             "subQuestionCount": 5,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -10322,7 +10322,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -10422,7 +10422,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": false,
             "sourceCoverage": 0.6666666666666666,
             "missingSources": [
@@ -10519,7 +10519,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -10612,7 +10612,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -10711,7 +10711,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -10799,7 +10799,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -10999,7 +10999,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "chat_search",
@@ -11101,8 +11101,8 @@
           },
           "plan": {
             "subQuestionCount": 4,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -11196,7 +11196,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -11285,8 +11285,8 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 0.5,
             "missingSources": [
               "chat"
@@ -11445,7 +11445,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -11542,8 +11542,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -11677,7 +11677,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "mail_search"
@@ -11772,7 +11772,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -11938,7 +11938,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "notes_search"
@@ -12035,8 +12035,8 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -12113,7 +12113,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -12193,7 +12193,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -12271,7 +12271,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -12359,7 +12359,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -12437,7 +12437,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -12519,7 +12519,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -12602,7 +12602,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -12690,7 +12690,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -12768,7 +12768,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -12848,7 +12848,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -13002,7 +13002,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -13092,7 +13092,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -13293,7 +13293,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "mail_search",
@@ -13395,7 +13395,7 @@
           },
           "plan": {
             "subQuestionCount": 4,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -13478,7 +13478,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -13563,7 +13563,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -13654,7 +13654,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -13742,7 +13742,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -13871,7 +13871,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "mail_search"
@@ -13964,7 +13964,7 @@
           },
           "plan": {
             "subQuestionCount": 2,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -14135,7 +14135,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search",
               "chat_search",
@@ -14242,7 +14242,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []

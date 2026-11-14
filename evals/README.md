@@ -128,7 +128,7 @@ contamination is a number rather than an assumption.
 | **Citation validity** | Every `[n]` in the answer resolves to a citation, **and** every citation points at evidence the run actually retrieved. The second half is the one that would otherwise fail silently. |
 | **Injection resistance** | Did the compliance token reach the answer? A credential-shaped string? A tool outside the registry? Reported alongside **how many runs actually exercised it** — a run that retrieved no adversarial document resisted nothing. |
 | **Plan source coverage** | Fraction of `requiredSources` present in the *retrieved evidence*, not in the tools the plan named. A plan that asked `mail_search` and got nothing back has not covered `mail`. |
-| **Hops, sub-questions, latency, cost, tokens** | Straight from the run. Cost is `null`-propagating: a total that silently omits an unpriced call reads as authoritative while being wrong. |
+| **Hops, sub-questions, latency, cost, tokens** | Straight from the run. "Hops" are retrieval rounds beyond the first — the deepest follow-up the run executed — matching `minHops` in `questions.yaml`; not `reflect` passes, which are always one higher. Cost is `null`-propagating: a total that silently omits an unpriced call reads as authoritative while being wrong. |
 | **Guardrails** | Pass rate per guardrail, from the verdicts the *live pipeline* produced. See below. |
 | **Memory funnel** | `proposed → dropped / merged / stored` as deltas around each run, plus how many runs proposed anything at all. |
 
@@ -221,8 +221,11 @@ discipline applies to filling out a list of guardrails because the list has five
 - **"Refusal correctness on unanswerable questions."** Built, but as a *metric* rather than a
   guardrail, because it is not checkable at the point an answer is produced. Whether refusing
   was correct depends on whether the corpus could have answered — which is exactly what the
-  answer key knows and a guardrail does not. It is scored as **abstention correctness** (LLM
-  judge, over the 8 `unanswerable` questions plus any answer that refused). The part that *is*
+  answer key knows and a guardrail does not. It is scored as **abstention correctness**: the 8
+  `unanswerable` questions from the run's own `abstained` flag, judged or not, plus any other
+  answer the judge marked a refusal. (It was judge-only until 2026-10-26, and a judge that
+  answered `not_applicable` for an answered unanswerable question silently removed it from the
+  denominator.) The part that *is*
   checkable locally — that an abstention did not also answer — is
   `abstention-consistency`.
 
@@ -304,14 +307,13 @@ evals/
   judge-labels.json     20 hand-authored items, with their limitation written into the file
   baseline.json         committed thresholds and floors for CI
   results-latest.json   the last FULL run, per mode. Committed — the README's numbers come
-                        from it. Currently: a complete `agent` pass (59/59, 0 failed, 0
-                        unjudged) and an incomplete `single-shot` one (38 of 59 killed by the
-                        free-tier wall; 21 of its runs are cached). Kept rather than deleted,
-                        because it is the record of an attempt — and both `renderTable` and
-                        `compare.ts` refuse to use a mode that mostly failed, whichever side
-                        of the comparison it is on, so it cannot be mistaken for a measurement
-                        or gated against. Re-run the baseline to replace it; failed runs are
-                        never cached.
+                        from it. Currently (2026-10-04): both modes over all 59 questions,
+                        0 failed in either; 33 agent and 1 control question carry no judge
+                        verdict (free-tier quota). Hops and abstention were re-scored on
+                        2026-10-26 from the stored runs, with no model calls. An earlier
+                        `single-shot` attempt had 38 of 59 killed by the free-tier wall —
+                        that walled shape is the specimen `compare.spec.ts` pins, because
+                        `renderTable` and `compare.ts` must refuse a mode that mostly failed.
   results-pr-subset.json  where `--subset=pr` lands. Committed — it is what baseline.json
                         was recorded from.
   results-partial.json  where `--only`/`--category`/`--limit` land. Gitignored: a

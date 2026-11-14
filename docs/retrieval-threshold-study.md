@@ -113,6 +113,12 @@ passages would be discarded. There is no interval containing no observations wit
 retrievals on one side and the irrelevant on the other, which is exactly the structure the
 original study relied on.
 
+**Re-run on the 2026-10-04 results (2026-10-26).** The 59-question pass that replaced the one
+above has more retrievals, because `plan` now issues the question as asked beside the
+decomposition. Over **528 retrievals (80 relevant, 448 not)** the best F1 is **0.549 at
+0.4744**, precision 0.536 / recall 0.563, and again there is **no separation band**. The numbers
+moved; the structure did not.
+
 **Conclusion: `RETRIEVAL_DISTANCE_THRESHOLD` stays unenforced**, and the reason is now a
 measurement rather than a portability argument. `evals/metrics/threshold-sweep.ts` reports the
 separation band *before* the best F1 and prints this conclusion rather than the number, so a

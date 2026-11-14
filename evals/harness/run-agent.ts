@@ -5,6 +5,7 @@ import type { GuardrailVerdict } from '../../src/guardrails/guardrail';
 import { MEMORY_REPOSITORY } from '../../src/repositories/ports/tokens';
 import type { MemoryRepository } from '../../src/repositories/ports/memory.repository';
 import type { MemoryFunnel } from '../../src/memory/memory.types';
+import { extraRetrievalRounds } from '../metrics/plan-quality';
 import type {
   EvalQuestion,
   EvalRun,
@@ -162,7 +163,7 @@ export async function runAgentQuestion(
         tool: sq.tool,
         status: sq.status,
       })),
-      hops: result.state.hops,
+      hops: extraRetrievalRounds(result.state.subQuestions),
       toolsUsed: [...new Set(result.state.subQuestions.map((sq) => sq.tool))],
       unknownToolCalls: unknownToolCalls(result.events),
       latencyMs: result.latencyMs,

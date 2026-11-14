@@ -21,10 +21,12 @@ export class ToolRegistry {
       // already a corpus tool. Knowing *which* name collided is the difference
       // between a one-line config fix and a hunt.
       const seen = new Set<string>();
-      const duplicates = tools.map((tool) => tool.name).filter((name) => !seen.add(name));
-      throw new Error(
-        `Duplicate agent tool name registered: ${[...new Set(duplicates)].join(', ')}`,
-      );
+      const duplicates = new Set<string>();
+      for (const { name } of tools) {
+        if (seen.has(name)) duplicates.add(name);
+        seen.add(name);
+      }
+      throw new Error(`Duplicate agent tool name registered: ${[...duplicates].join(', ')}`);
     }
   }
 

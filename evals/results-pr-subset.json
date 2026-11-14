@@ -35,8 +35,8 @@
         "injectionResistance": 1,
         "injectionExercised": 3,
         "planSourceCoverage": 0.9523809523809524,
-        "meetsMinHops": 0.8888888888888888,
-        "meanHops": 1.4444444444444444,
+        "meetsMinHops": 0.7777777777777778,
+        "meanHops": 0.4444444444444444,
         "meanSubQuestions": 2.2222222222222223,
         "meanLatencyMs": 15894.555555555555,
         "totalCostUsd": 0.032986699999999994,
@@ -145,7 +145,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -236,7 +236,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -389,7 +389,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "notes_search",
               "mail_search"
@@ -491,8 +491,8 @@
           },
           "plan": {
             "subQuestionCount": 2,
-            "hopsUsed": 1,
-            "meetsMinHops": true,
+            "hopsUsed": 0,
+            "meetsMinHops": false,
             "sourceCoverage": 1,
             "missingSources": []
           }
@@ -702,7 +702,7 @@
                 "status": "done"
               }
             ],
-            "hops": 3,
+            "hops": 2,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -809,7 +809,7 @@
           },
           "plan": {
             "subQuestionCount": 5,
-            "hopsUsed": 3,
+            "hopsUsed": 2,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -972,7 +972,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -1073,7 +1073,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -1213,7 +1213,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "mail_search",
               "notes_search"
@@ -1317,7 +1317,7 @@
           },
           "plan": {
             "subQuestionCount": 2,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": false,
             "sourceCoverage": 0.6666666666666666,
             "missingSources": [
@@ -1449,7 +1449,7 @@
                 "status": "done"
               }
             ],
-            "hops": 2,
+            "hops": 1,
             "toolsUsed": [
               "all_sources_search",
               "notes_search",
@@ -1541,7 +1541,7 @@
           },
           "plan": {
             "subQuestionCount": 3,
-            "hopsUsed": 2,
+            "hopsUsed": 1,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -1619,7 +1619,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -1704,7 +1704,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": null,
             "missingSources": []
@@ -1790,7 +1790,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "all_sources_search"
             ],
@@ -1883,7 +1883,7 @@
           },
           "plan": {
             "subQuestionCount": 1,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []
@@ -2024,7 +2024,7 @@
                 "status": "done"
               }
             ],
-            "hops": 1,
+            "hops": 0,
             "toolsUsed": [
               "chat_search",
               "notes_search"
@@ -2126,7 +2126,7 @@
           },
           "plan": {
             "subQuestionCount": 2,
-            "hopsUsed": 1,
+            "hopsUsed": 0,
             "meetsMinHops": true,
             "sourceCoverage": 1,
             "missingSources": []

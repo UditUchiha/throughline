@@ -29,13 +29,14 @@ you need, not the whole file. Index below.
 | Check M5's "no node changes" claim | `git diff <m4-commit> -- src/agent/nodes/` — only `reflect`/`synthesize` should appear, and only for the untrusted fence |
 | Replay a recorded run (no model calls) | same, with `?demo=1` — see `GET /agent/demo` for what is available |
 | Re-record the demo fixtures | `pnpm capture:runs` (server must be running; `--list` to inspect, `--force` to re-capture) |
-| Rebuild the baked index (keyless) | `EMBEDDING_PROVIDER=precomputed pnpm corpus:index` — seconds, no model calls |
+| Rebuild the baked index (keyless) | `EMBEDDING_PROVIDER=precomputed pnpm corpus:index` — seconds, no model calls. **Deletes `DATABASE_PATH` first**; point it elsewhere to keep local traces |
 | Is the vector artifact current? | `pnpm corpus:vectors --check` (free; CI runs it) · regenerate with `--from-index` |
 | Build + boot the deployment image | `docker build -t throughline . && docker run --rm -p 7860:7860 -e GEMINI_API_KEY=... -e EMBEDDING_API_KEY=... throughline` |
 | Regenerate corpus docs for one fact | `pnpm corpus:generate --only=fact.<id>` (needs `GEMINI_API_KEY`) |
 
-Node 22+, pnpm. Local Ollama on `:11434` is required for embeddings and chat
-(`ollama pull bge-m3`).
+Node 22+, pnpm. Chat and embeddings default to Gemini (`GEMINI_API_KEY`), with Groq as the
+recommended fallback. Ollama on `:11434` is optional — only for `LLM_PROVIDER=ollama` or
+`EMBEDDING_PROVIDER=ollama` — and neither path has ever been exercised.
 
 ## Non-negotiable conventions (PLAN.md §0.3)
 
@@ -236,14 +237,21 @@ is fixed and `verifyEnvironment` now reads the settings back off the booted appl
 | | agent | control |
 |---|---|---|
 | recall@k · plan coverage · citation validity | 96.4% · 98.4% · 100% | 100% · 100% · 100% |
-| meets minHops | **96.6%** | 49.2% |
+| meets minHops | 61.0% | 49.2% |
 | injection resistance | 87.5% | 100% |
-| abstention · citation support | 100% · 96.0% | 100% · 93.9% |
+| abstention · citation support | 87.5% · 96.0% | 100% · 93.9% |
 | answer correctness | 65.4% | 77.6% |
 
 **The control wins and that is the finding** — on this corpus one broad retrieval answers more
 completely than a decomposition. Three things anyone quoting these must carry with them:
 
+- **Two rows were re-derived 2026-10-26 from the same runs, with no model calls.** `minHops`
+  means retrieval rounds *beyond the first*, but the harness recorded `reflect` passes (one
+  higher on every agent run), which read 96.6%; `extraRetrievalRounds` in
+  `evals/metrics/plan-quality.ts` fixes it and the cache fingerprint now names what `hops`
+  counts. Abstention read 100% over one judged question because the judge marked the answered
+  `q.acme-corp-contract` `not_applicable`; the unanswerable set is now scored from the run's own
+  `abstained` flag (`aggregate.ts`).
 - **The judged sets differ** — Groq's free tier ran dry at 26 of 59 agent verdicts against 58
   of 59 for the control, and a rate over 26 is not a rate over 58. Over the 26 questions *both*
   modes have verdicts for, under the same judge: agent 65.4% / control 84.6% strict, 96.2% /
@@ -310,9 +318,10 @@ full argument is in `evals/README.md`:
   `run_finished` and record `answer: null` over an answer the client already received.
 - **Extraction is now gated on first-person markers** (`mentionsSelf`), decided by M6's
   measurement of 0 candidates proposed across 59 runs. It saves a model call per corpus-style
-  run and closes the document-to-memory injection path. The committed results **predate** the
-  gate deliberately — they are its evidence — and a `skippedNoSelfReference` funnel counter
-  keeps "the gate fired" distinguishable from "the extractor found nothing" afterwards.
+  run and closes the document-to-memory injection path. The evidence for it was an earlier,
+  pre-gate pass; the committed 2026-10-04 results ran *with* the gate (`runsSkippedByGate: 51`),
+  so their `proposed: 0` is 0 by construction and says nothing about the extractor. The
+  `skippedNoSelfReference` counter is what keeps the two readings apart.
 
 Connectors are `src/integrations/mcp/` (M5). `McpHostService` connects to configured servers at
 boot, discovers their tools, and returns plain `AgentTool`s — the graph never learns MCP exists,
@@ -451,4 +460,5 @@ Still open: `LLM_PROVIDER=ollama` has never been exercised. (`POST /agent/ask`
 is rate limited as of §9; CORS stays open deliberately — see the Deployment section above.)
 
 **`HANDOFF.md` is the orientation doc** — read it before PLAN.md if you are picking this up
-cold. There is no CI yet; it arrives in M6.
+cold. CI is `.github/workflows/ci.yml` (keyless: lint, typecheck, build, tests, corpus checks,
+a Docker boot) and `evals.yml` (the 9-question eval gate, skipped without a key).

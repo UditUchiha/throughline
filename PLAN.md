@@ -11,7 +11,7 @@ on the repository. Everything needed to start is in this document.
 
 ## Current status — read this first
 
-*Authored 2026-08-04. Status last updated 2026-09-06.*
+*Authored 2026-08-04. Status last updated 2026-10-26.*
 
 **Repo:** https://github.com/UditUchiha/throughline (public, one clean commit, no client data
 in history). Local dev on Windows, pnpm, Node 22.
@@ -35,6 +35,7 @@ in history). Local dev on Windows, pnpm, Node 22.
 | **M5 — MCP connectors** | ✅ Done | `McpHostService` connects to configured servers at boot, discovers their tools and registers them into the existing registry. **No file under `src/agent/nodes/` changed** — the M1 tool shape held; the only structural change was making the `AGENT_TOOLS` factory async. `DEMO_MODE` (default on) serves a real in-process MCP server over the SDK's in-memory transport, so the credential-free demo exercises the whole path rather than bypassing it. Security section built: allowlisted tool surface, schema-validated arguments, retrieved content fenced as untrusted, and 3 adversarial corpus documents carrying real payloads. Verified live both ways — the planner chose the connector unprompted and cited it, and an injected document was described rather than obeyed. |
 | **M6 — evals + guardrails + CI** | ✅ Done; measured 2026-10-04 | `evals/` written from scratch, `src/guardrails/` with five deterministic checks running on every live run *and* scored by the suite, and two GitHub Actions workflows. **The agent-vs-baseline delta is measured**, closing the criterion that was outstanding: 59 questions against a single-shot control through identical scoring, 0 runs failed in either mode, connectors off *verified* off the booted application after the isolation bug was fixed. **The control wins** — recall@k 96.4% vs 100%, answer correctness 65.4% vs 77.6% — and the suite localised why, which is the point of having one. Two caveats are recorded wherever the numbers appear: 26 of 59 agent questions carry a judge verdict (free-tier quota), and injection resistance reads 87.5% because `tokenLeaked` is a substring test that cannot tell a quoted canary from an obeyed one. Judge agreement remains un-run (20 calls). |
 | **§9 — deployment** | ✅ Built | Dockerfile (index baked in, keyless build via committed vectors), `render.yaml`, rate limit on `POST /agent/ask`, long-term memory off publicly, and the recorded-run fallback wired to an exhausted quota. Image built, booted and exercised in a container; a CI job now does the same on every push. **Deployed 2026-10-04** — API on Render, UI on Vercel, both auto-deploying from `main`; the hero question verified replaying against production. |
+| **M7 — stale-knowledge detection** | 🚧 In progress | `src/conflicts/` + `pnpm scan:conflicts`: rank-based neighbour candidates from the vector index alone, a model judge per document, `--measure` grading against the ledger's two `supersedes` chains. No full scan has completed (free-tier quota), so neither known chain is verified against a live run. See §5/M7. |
 
 > [!WARNING]
 > **The eval harness's environment isolation never took effect, for the whole of M6** (found
@@ -1085,7 +1086,9 @@ worth documenting.
 - [x] **README contains a results table with both, and the delta.** Done 2026-10-04. Both modes
       over all 59 questions through identical scoring code, 0 runs failed in either, connectors
       verified off. **The control wins** — recall@k 96.4% vs 100%, answer correctness 65.4% vs
-      77.6%, with the agent ahead on `meets minHops` (96.6% vs 49.2%) and citation support.
+      77.6%, with the agent ahead on `meets minHops` (61.0% vs 49.2%) and citation support.
+      (`meets minHops` first read 96.6% because the harness counted `reflect` passes rather
+      than retrieval rounds beyond the first; re-derived 2026-10-26 from the same runs.)
       Ticked on the strength of the deterministic half, which is complete for both modes; the
       judged half carries a stated limitation rather than a silent one — Groq's free tier left
       26 of 59 agent questions with a verdict against 58 of 59 for the control, so judged rates
