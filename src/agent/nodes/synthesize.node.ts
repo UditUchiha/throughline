@@ -122,9 +122,9 @@ Reply with JSON only.`;
 
     const text = stripUnresolvedMarkers(parsed.answer, unresolved).trim();
 
-    // Streaming synthesis token-by-token needs `LlmService.chatStream`, which
-    // lands with the SSE surface in M1.4. Emitting the finished text as one
-    // delta keeps the event contract honest for consumers in the meantime.
+    // One delta carrying the whole answer: token-by-token streaming would need an
+    // `LlmService.chatStream`, which was never built. The event shape already
+    // allows several deltas, so adding it later changes no consumer.
     emit({ type: 'token_delta', text });
 
     return this.finish(state, config, emit, events, {

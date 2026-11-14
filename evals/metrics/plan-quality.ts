@@ -35,3 +35,19 @@ export function scorePlan(run: EvalRun, question: EvalQuestion): QuestionResult[
     missingSources,
   };
 }
+
+/**
+ * Retrieval rounds a run made beyond its first — what `EvalRun.hops` and
+ * `minHops` both mean.
+ *
+ * Not `state.hops`, which counts `reflect` passes: every agent run reflects at
+ * least once, including the pass that finds no gap, so it is the round count
+ * plus one. Recording it directly made every agent run clear `minHops: 1` and
+ * the single-shot control — which never reflects — score exactly its
+ * `minHops: 0` share, so the comparison measured the graph's shape rather than
+ * the agent's behaviour. A follow-up carries the hop it was issued in, so the
+ * deepest one is the number of rounds that actually ran.
+ */
+export function extraRetrievalRounds(subQuestions: { hop: number }[]): number {
+  return Math.max(0, ...subQuestions.map((sq) => sq.hop));
+}

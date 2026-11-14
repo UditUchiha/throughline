@@ -3,8 +3,8 @@
 I work across Gmail, Slack, Obsidian and a helpdesk. Answering something as ordinary as
 *"why did the launch slip, and who signed off on the new date?"* means opening three tools and
 stitching the answer together myself. The cause is in a chat thread; the approval is in an
-email; **no single document contains both** — so ordinary RAG, which retrieves the nearest
-passage and stops, cannot answer it at all.
+email; **no single document contains both** — so retrieving the single nearest passage and
+stopping cannot answer it.
 
 throughline is an agent that plans the decomposition, fans out across sources in parallel,
 notices what it is still missing, retrieves again, and cites the passage behind every claim.
@@ -15,16 +15,22 @@ Here is that shape of question, asked against a synthetic corpus of mail, chat a
 > technically?**
 >
 > Amara Chen owns the billing migration workstream that caused the Helios delay **[2]**.
-> Technically, the failure was traced to a connection-pool exhaustion bug in the new Stripe
-> usage-metering service under concurrent writes **[1]** — the service kept opening
-> connections without releasing them during heavy transaction bursts, starving the main
-> database threads.
+> Technically, the failure occurred during load testing and was traced to a connection-pool
+> exhaustion bug in the new Stripe usage-metering service under concurrent writes **[1][2]**.
+> The service kept opening new connections without releasing them back to the pool properly
+> during heavy transaction bursts, which starved the main database threads and caused
+> cascading timeout errors across the stack **[1]**.
 
 The owner is named in a chat thread (`chat.eng-helios.2026-02-18`). The root cause is written
 up in a note (`notes.helios-loadtest-postmortem`). Neither document contains the other half,
 so retrieving the single nearest passage cannot answer it — the agent searches both sources in
 one parallel round and cites each half back to the document it came from. That is the landing
 page's one-click example, and it replays with no model calls.
+
+A plain top-k search does better than that framing suggests, and the evals below say so: the
+question as asked puts the postmortem first and the chat thread third, so any k ≥ 3 retrieves
+both halves. The single-shot control retrieves 12 and answers this exact question correctly.
+What the agent adds is measured against that control, not against a strawman.
 
 **Status: M0–M6 done.** The agent graph runs, streams its reasoning over SSE, a UI renders
 that stream live, MCP connectors join the same tool registry, and an eval suite scores the
@@ -35,9 +41,11 @@ picking this up cold.
 
 ## What works today
 
-- **The agent graph.** LangGraph `StateGraph`: triage → (plan) → execute → reflect ↺ →
-  synthesize. Triage decides whether a question needs decomposing at all; a `simple` one
-  skips planning and answers in ~4s instead of ~10s.
+- **The agent graph.** LangGraph `StateGraph`: recall → triage → (plan) → execute →
+  reflect ↺ → synthesize → remember. `recall` resolves follow-ups against the session and
+  `remember` writes long-term memory; between them, triage decides whether a question needs
+  decomposing at all. In the 2026-10-04 eval run a single-search question averaged 15.1s
+  against 32.1s for a decomposed one.
 - **Multi-source retrieval.** `mail_search` / `chat_search` / `notes_search` /
   `all_sources_search`, fanned out in parallel.
 - **Reflection.** After retrieval the agent judges whether a gap remains and issues a
@@ -47,7 +55,8 @@ picking this up cold.
   deterministic check, not an LLM judgment.
 - **Streaming.** A frozen event contract (`src/agent/events.ts`) over SSE, and a Next.js UI
   that renders the plan, the parallel tool timeline, the evidence and the cited answer as
-  they arrive.
+  they arrive. The answer itself arrives whole, as one `token_delta`, once synthesis
+  finishes — token-by-token streaming is not built (`synthesize.node.ts`).
 - **Recorded-run replay.** `?demo=1` replays a captured run over the same event stream with
   zero model calls — the demo still works when a free tier is exhausted.
 - **A corpus that is an answer key.** 172 synthetic documents generated from a hand-authored
@@ -89,9 +98,10 @@ appears.
 
 ```
 POST /agent/ask  (SSE)  ->  LangGraph StateGraph  ->  Tool registry  ->  RetrievalService
-                            triage -> plan ->          mail_search      -> sqlite-vec KNN
-                            execute -> reflect ->      chat_search
-                            synthesize                 notes_search
+                            recall -> triage ->        mail_search      -> sqlite-vec KNN
+                            plan -> execute ->         chat_search
+                            reflect -> synthesize ->   notes_search
+                            remember
                                                        all_sources_search
                                                        obsidian_search_notes
                                                             |
@@ -112,7 +122,8 @@ Calling code asks for a logical tier (`fast` / `default` / `deep`), never a mode
 
 Business logic never talks to SQLite directly. `src/repositories/ports/*.ts` define
 interfaces (`ArticleRepository`, `ChunkRepository`, `EmbeddingRepository`,
-`IndexStateRepository`); `src/repositories/sqlite/*.ts` implement them;
+`IndexStateRepository`, `MemoryRepository`, `TraceRepository`, `CheckpointRepository`);
+`src/repositories/sqlite/*.ts` implement them;
 `repositories.module.ts` is the single place that binds interface → implementation via
 NestJS DI tokens.
 
@@ -142,7 +153,7 @@ ui/                 # Next.js App Router UI — pure rendering over the SSE even
 corpus/             # ledger (hand-authored ground truth) + generated documents + questions
 fixtures/runs/      # captured agent runs, committed; written by `pnpm capture:runs`
 fixtures/mcp/vault/ # the synthetic Obsidian vault DEMO_MODE's connector searches
-evals/              # eval harness — empty until M6
+evals/              # eval harness: agent vs single-shot control, scored against the answer key
 scripts/            # authoring tools, run outside the Nest context
 database/app.db     # SQLite file (gitignored)
 ```
@@ -193,7 +204,7 @@ pnpm dev                      # http://localhost:3000
 ```
 
 Open <http://localhost:3000/?demo=1> to browse the recorded runs without spending any
-quota. The UI and the API deploy separately (Vercel / Hugging Face Spaces), so the browser
+quota. The UI and the API deploy separately (Vercel / Render), so the browser
 always makes a cross-origin request; the API enables CORS for any origin because there is
 no sign-in and no credentials involved.
 
@@ -504,14 +515,26 @@ booted application rather than assumed. **0 runs failed in either mode.** Reprod
 | Recall@k | 96.4% | **100%** | **deterministic** — did the `expressedIn` documents come back? |
 | Citation validity | 100% | 100% | **deterministic** — every `[n]` resolves to retrieved evidence |
 | Plan source coverage | 98.4% | 100% | **deterministic** — `requiredSources` present in the evidence |
-| Meets `minHops` | **96.6%** | 49.2% | **deterministic** |
-| Injection resistance | 87.5% | 100% | **deterministic**, over the 8 runs that retrieved a payload |
-| Abstention correctness | 100% | 100% | LLM judge over the 8 unanswerable questions |
+| Meets `minHops` | **61.0%** | 49.2% | **deterministic** — retrieval rounds beyond the first ≥ the authored floor |
+| Injection resistance | 87.5% | 100% | **deterministic**, over the runs that retrieved a payload (8 agent, 9 control) |
+| Abstention correctness | 87.5% | **100%** | **deterministic** on the 8 unanswerable questions (the run's own `abstained`); judge for wrong refusals elsewhere |
 | Citation support | 96.0% | 93.9% | LLM judge — do the cited passages support the claim? |
 | Answer correctness | 65.4% | 77.6% | LLM judge vs. `referenceAnswer` + `requiredFacts` |
 
-Agent cost $0.2648, mean latency 25.5s, mean 2.61 sub-questions and 1.37 hops per question;
-control $0.2483 and 16.7s.
+Agent cost $0.2648, mean latency 25.5s, mean 2.61 sub-questions and 0.37 extra retrieval
+rounds per question (15 of 59 runs looped back for a second round); control $0.2483 and 16.7s.
+
+**Two rows were re-derived on 2026-10-26 from the same runs, with no model calls.** Both had
+been flattering the agent through a scoring bug rather than anything it did:
+
+- *Meets `minHops`* read 96.6%. `minHops` is the number of retrieval rounds *beyond the first*
+  (`corpus/questions.yaml`), but the harness recorded `reflect` passes, which every agent run
+  makes at least once — so every agent run cleared `minHops: 1` and the control, which never
+  reflects, scored exactly its `minHops: 0` share. Counting rounds actually run gives 61.0%.
+- *Abstention correctness* read 100% over **one** judged question. The agent answered the
+  unanswerable `q.acme-corp-contract` (judged incorrect), but the judge filled its abstention
+  field with `not_applicable`, which removed it from the denominator. The unanswerable set is
+  now scored from the run's own `abstained` flag, judged or not: 7 of 8.
 
 **The control wins, and that is the result.** On this corpus a single broad retrieval answers
 more completely than a planned decomposition. Three things qualify it, in descending order of
@@ -557,17 +580,11 @@ the fan-out budget rather than added to it). On the ten affected questions that 
 seven outright, lifting their recall from 51.7% to 86.7% and the suite's from 90.5% to 96.4%.
 Breadth beside precision, for one extra search per run.
 
-Guardrail pass rates over the same 59 runs: `exfiltration` 100%, `abstention-consistency`
-96.6%, `citation-coverage` 84.7%, `injection-detection` 84.7% (that last one is a *detector* —
-a "failure" means it found an injected passage in the retrieved set, which for the adversarial
-questions is the correct outcome).
-
-> **The baseline column is not filled in yet, and that is the quota constraint, not a gap in
-> the harness.** `pnpm eval --baseline=single-shot` is implemented, tested and has produced
-> real results on a subset — but the agent pass above spent the day's free-tier budget on both
-> providers, and the baseline needs ~118 more calls. It completes with one command when the
-> window resets. Until it does, this README quotes no delta, because a headline claim with
-> half its measurement missing is worse than no headline claim.
+Guardrail pass rates over the agent's 59 runs: `exfiltration` 98.3% (the quoted canary above),
+`abstention-consistency` 93.2%, `citation-coverage` 89.8%, `injection-detection` 86.4% (that
+last one is a *detector* — a "failure" means it found an injected passage in the retrieved set,
+which for the adversarial questions is the correct outcome). The control's: 100%, 94.9%, 91.5%
+and 84.7%.
 
 ### Three findings the first run produced
 
@@ -580,9 +597,10 @@ was measured against.
 
 **2. `RETRIEVAL_DISTANCE_THRESHOLD` should stay unenforced — and now that is a measurement.**
 `pnpm eval:sweep` labels every retrieval in the run by whether the answer key wanted it, then
-sweeps every candidate cutoff. Over **471 retrievals (74 relevant, 397 not)** the two classes
-**overlap completely**: the best achievable F1 is 0.551 at distance 0.485, with precision
-0.495. There is no empty band to put a cutoff in. The value has been configured-but-unenforced
+sweeps every candidate cutoff. Over the 2026-10-04 run's **528 retrievals (80 relevant, 448
+not)** the two classes **overlap completely**: the best achievable F1 is 0.549 at distance
+0.474, with precision 0.536 (the first run, over 471 retrievals, gave 0.551 at 0.485). There
+is no empty band to put a cutoff in. The value has been configured-but-unenforced
 since M0.6 on a portability argument; it now has evidence instead of an argument.
 
 **3. Long-term memory proposed nothing at all — 0 candidates across 59 runs.** So the retention
@@ -756,9 +774,9 @@ docker run --rm -p 7860:7860 \
   throughline
 ```
 
-`EMBEDDING_API_KEY` is the Gemini key again, under the name the embedding provider reads. It
-falls back to `LLM_API_KEY`, **not** to `GEMINI_API_KEY`, so a container given only the chat key
-fails at boot.
+`EMBEDDING_API_KEY` is optional: it lets embeddings use a different Gemini key (or several,
+comma-separated) from chat. Without it the embedding provider uses `GEMINI_API_KEY`, then
+`LLM_API_KEY` when `LLM_PROVIDER=gemini` (`AppConfigService.embeddingApiKeys`).
 
 ### The index is baked into the image
 
@@ -789,7 +807,7 @@ first chunk instead of producing an index that is quietly a mixture of two corpo
 pnpm corpus:vectors --from-index   # free: lift them out of a built index
 pnpm corpus:vectors                # ~172 calls; needs a key
 pnpm corpus:vectors --check        # free: is the artifact current? (runs in CI)
-pnpm corpus:index                  # build database/app.db
+pnpm corpus:index                  # build database/app.db — deletes DATABASE_PATH first
 ```
 
 `precomputed` is a **build-time** provider only — a running server has to embed *questions*,
@@ -854,7 +872,7 @@ event of a replay; it is the *next* request that replays.
 | `EMBEDDING_PROVIDER`           | `gemini`                    | `gemini` \| `ollama` \| `precomputed`. The last is **build-time only** — it replays committed vectors so the Docker build needs no key, and cannot embed a question |
 | `EMBEDDING_MODEL`              | `gemini-embedding-001`      | Embedding model. Must describe the model the index was built with — the identity in `index_meta` is checked at boot |
 | `EMBEDDING_DIMENSIONS`         | `768`                       | Must match the model's output size (`1024` for `bge-m3`). Delete `database/app.db` when changing |
-| `EMBEDDING_API_KEY`            | —                           | Required for `EMBEDDING_PROVIDER=gemini`. Falls back to `LLM_API_KEY`, **not** to `GEMINI_API_KEY` |
+| `EMBEDDING_API_KEY`            | —                           | Embedding key(s) for `EMBEDDING_PROVIDER=gemini`. Falls back to `GEMINI_API_KEY`, then to `LLM_API_KEY` when `LLM_PROVIDER=gemini` |
 | `EMBEDDING_VECTORS_PATH`       | `./corpus/index/embeddings.json` | The vectors `precomputed` replays, written by `pnpm corpus:vectors`     |
 | `OLLAMA_URL`                   | `http://localhost:11434`    | Ollama API base URL                                                            |
 | `CHAT_MODEL`                   | `qwen3.5:9b`                | Chat model, when `LLM_PROVIDER=ollama`                                         |
@@ -876,7 +894,7 @@ event of a replay; it is the *next* request that replays.
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_ASKS` | `600000` / `5` | Per-IP budget for live questions. `?demo=1` replays are exempt                 |
 | `TRUST_PROXY_HOPS`             | `1`                         | Express `trust proxy`. Load-bearing for the rate limit: at 0 behind a proxy the whole internet shares one bucket; too high lets a caller forge `X-Forwarded-For` |
 | `QUOTA_FALLBACK_COOLDOWN_MS`   | `600000`                    | How long a recorded run is served after every provider refused on quota. A window rather than a probe — probing costs the model call there is none of |
-| `RETRIEVAL_DISTANCE_THRESHOLD` | `0.9`                       | **Not enforced, and M6 measured why.** Over 471 real retrievals (74 relevant, 397 not) relevant and irrelevant hits overlap completely on distance — best achievable F1 0.551, precision 0.495, no empty band to put a cutoff in. Re-derive with `pnpm eval:sweep`; background in [`docs/retrieval-threshold-study.md`](docs/retrieval-threshold-study.md) |
+| `RETRIEVAL_DISTANCE_THRESHOLD` | `0.9`                       | **Not enforced, and M6 measured why.** Over 528 real retrievals (80 relevant, 448 not) relevant and irrelevant hits overlap completely on distance — best achievable F1 0.549, precision 0.536, no empty band to put a cutoff in. Re-derive with `pnpm eval:sweep`; background in [`docs/retrieval-threshold-study.md`](docs/retrieval-threshold-study.md) |
 | `TRACE_RETENTION_RUNS`         | `200`                       | Finished runs kept in the local trace store; oldest pruned on write. No unlimited option — see [`env.schema.ts`](src/config/env.schema.ts) |
 | `CHECKPOINT_RETENTION_SESSIONS` | `50`                       | Sessions kept by the short-term-memory checkpointer; oldest pruned after every run          |
 | `MEMORY_IMPORTANCE_FLOOR`      | `0.5`                       | Candidate facts below this are dropped before they cost an embedding call                   |
@@ -907,7 +925,7 @@ event of a replay; it is the *next* request that replays.
 | Re-record the demo fixtures         | `pnpm capture:runs` (server must be running) |
 | Vector artifact — from a built index | `pnpm corpus:vectors --from-index` (free)  |
 | Vector artifact — is it current?    | `pnpm corpus:vectors --check` (free)       |
-| Build the baked index               | `pnpm corpus:index` (keyless with `EMBEDDING_PROVIDER=precomputed`) |
+| Build the baked index               | `pnpm corpus:index` (keyless with `EMBEDDING_PROVIDER=precomputed`; replaces the file at `DATABASE_PATH`, traces included) |
 | UI lint / type-check / tests        | `cd ui && pnpm lint && pnpm typecheck && pnpm test` |
 
 ## The corpus is an answer key, not test data
@@ -918,7 +936,7 @@ questions from fact ids. Facts are authored **first** — never write a question
 generated document. That ordering is what keeps the eval suite from grading the model
 against its own output.
 
-The setting is "Lumen Labs", a fictional company: 16 people, 6 projects, 172 documents
+The setting is "Lumen Labs", a fictional company: 16 people, 7 projects, 172 documents
 across 9 storylines, roughly 100 of them pure noise. No real data is involved.
 
 ## Migration path to Postgres + pgvector
