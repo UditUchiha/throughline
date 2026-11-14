@@ -18,13 +18,13 @@ import {
   type RunView,
 } from '@/lib/run-state';
 import { clearStoredSession, readStoredSession, storeSession } from '@/lib/session';
-import { CornerDownRight, RotateCcw } from 'lucide-react';
+import { ChevronDown, CornerDownRight, RotateCcw } from 'lucide-react';
 import { AskBar } from '@/components/AskBar';
 import { AnswerPanel } from '@/components/AnswerPanel';
 import { EvidencePanel } from '@/components/EvidencePanel';
 import { ExampleQuestions } from '@/components/ExampleQuestions';
 import { HeroQuestion, heroIsReplayable, isHeroQuestion } from '@/components/HeroQuestion';
-import { HowItWorks, Intro } from '@/components/Landing';
+import { Intro } from '@/components/Landing';
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { PlanPanel } from '@/components/PlanPanel';
 import {
@@ -320,27 +320,25 @@ export default function Page() {
 
           {idle && (
             <>
-              <div className="grid gap-5 lg:grid-cols-12">
-                <HeroQuestion
-                  demo={demo}
-                  disabled={busy}
-                  available={heroAvailable}
-                  onPick={pick}
-                  className="lg:col-span-7"
-                />
-                <HowItWorks
-                  wide={!heroAvailable}
-                  className={heroAvailable ? 'lg:col-span-5' : 'lg:col-span-12'}
-                />
-              </div>
-
-              <ExampleQuestions
-                examples={otherExamples}
-                demoRuns={otherDemoRuns}
+              <HeroQuestion
                 demo={demo}
                 disabled={busy}
+                available={heroAvailable}
                 onPick={pick}
+                className="max-w-3xl"
               />
+
+              {/* Folded when the hero can carry the page; open when there is no
+                  hero, or the visitor would face a bare ask box. */}
+              <Disclosure label="More questions" open={!heroAvailable}>
+                <ExampleQuestions
+                  examples={otherExamples}
+                  demoRuns={otherDemoRuns}
+                  demo={demo}
+                  disabled={busy}
+                  onPick={pick}
+                />
+              </Disclosure>
             </>
           )}
 
@@ -379,27 +377,24 @@ export default function Page() {
 
               <RunProgress view={view} elapsedMs={elapsedMs} />
 
-              {/* Trace on the left, payoff on the right. On a phone this collapses to
-                  one column in graph order — triage, plan, retrieval, then answer —
-                  which is also the order the events arrive in. */}
-              <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
-                <div className="min-w-0 space-y-5 lg:col-span-5">
+              <AnswerPanel
+                view={view}
+                onCite={cite}
+                activeEvidenceId={focus?.evidenceId ?? null}
+              />
+              <EvidencePanel view={view} focus={focus} />
+
+              {/* The trace is still here for anyone who wants it, closed by default:
+                  a first-time visitor came for the answer, not the graph. */}
+              <Disclosure label="Show how it got there">
+                <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
                   <TriageCard view={view} />
                   <PlanPanel view={view} />
                   <ToolTimeline view={view} />
                   <RunStats view={view} elapsedMs={elapsedMs} />
                   <MemoryPanel view={view} />
                 </div>
-
-                <div className="min-w-0 space-y-5 lg:col-span-7">
-                  <AnswerPanel
-                    view={view}
-                    onCite={cite}
-                    activeEvidenceId={focus?.evidenceId ?? null}
-                  />
-                  <EvidencePanel view={view} focus={focus} />
-                </div>
-              </div>
+              </Disclosure>
             </>
           )}
         </div>
@@ -456,4 +451,28 @@ function describeConnectionFailure(error: unknown): ConnectionFailure {
     };
   }
   return { message: error instanceof Error ? error.message : String(error), status: null };
+}
+
+/** A native `<details>` with the page's chevron; what it hides stays in the DOM. */
+function Disclosure({
+  label,
+  open = false,
+  children,
+}: {
+  label: string;
+  open?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details open={open} className="group">
+      <summary className="inline-flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-line bg-surface/70 px-3.5 text-sm text-fg-2 transition-colors duration-150 select-none hover:border-line-strong hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronDown
+          className="size-4 transition-transform duration-200 group-open:rotate-180"
+          aria-hidden
+        />
+        {label}
+      </summary>
+      <div className="mt-5">{children}</div>
+    </details>
+  );
 }
