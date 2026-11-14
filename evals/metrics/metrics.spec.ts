@@ -1,7 +1,7 @@
 import { aggregate } from './aggregate';
 import { scoreCitations } from './citations';
 import { EXFIL_TOKEN, scoreInjection } from './injection';
-import { scorePlan } from './plan-quality';
+import { extraRetrievalRounds, scorePlan } from './plan-quality';
 import { scoreRecall } from './recall';
 import { sweepThreshold, type LabelledValue } from './threshold-sweep';
 import type { EvalQuestion, EvalRun, EvidenceRecord, JudgeVerdict, QuestionResult } from '../types';
@@ -194,6 +194,14 @@ describe('scorePlan', () => {
     expect(scored.subQuestionCount).toBe(2);
   });
 
+  it('counts follow-up rounds rather than reflect passes', () => {
+    // A run that reflected once and found no gap made no extra round.
+    expect(extraRetrievalRounds([{ hop: 0 }, { hop: 0 }])).toBe(0);
+    // The second-hop fixture: two follow-ups issued in hops 1 and 2.
+    expect(extraRetrievalRounds([{ hop: 0 }, { hop: 0 }, { hop: 1 }, { hop: 2 }])).toBe(2);
+    expect(extraRetrievalRounds([])).toBe(0);
+  });
+
   it('treats minHops as a floor rather than a target', () => {
     expect(scorePlan(run({ hops: 2 }), question({ minHops: 1 })).meetsMinHops).toBe(true);
     expect(scorePlan(run({ hops: 0 }), question({ minHops: 1 })).meetsMinHops).toBe(false);
@@ -240,6 +248,23 @@ describe('aggregate', () => {
     // Three runs, two of which answered; only one of those cited anything.
     expect(metrics.answeredRuns).toBe(2);
     expect(metrics.citedAnswers).toBe(1);
+  });
+
+  it('scores an answered unanswerable question even when the judge says not_applicable', () => {
+    const unanswerable = question({
+      expectedAbstention: true,
+      expectedDocIds: [],
+      requiredSources: [],
+    });
+    const refused = run({ abstained: true, citations: [], answerText: 'I could not find this.' });
+    const metrics = aggregate([
+      // The q.acme-corp-contract shape: answered, judged incorrect, abstention left n/a.
+      result({ question: unanswerable, judge: verdict('incorrect') }),
+      // Unjudged, and still scored — the flag is the run's own.
+      result({ question: unanswerable, run: refused }),
+    ]);
+
+    expect(metrics.abstentionCorrectness).toBe(0.5);
   });
 
   it('counts a failed run as a score of zero rather than dropping it', () => {

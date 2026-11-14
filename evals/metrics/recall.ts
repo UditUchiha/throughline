@@ -10,9 +10,10 @@ import type { EvalQuestion, EvalRun, QuestionResult } from '../types';
  * threshold, no judge.
  *
  * `k` is not a parameter here on purpose. What was retrieved is whatever the run
- * actually put in front of the model — `TOP_K` per tool call, times however many
- * calls the plan made, minus the synthesis cap. Pinning a nominal k would measure
- * a number the run never used.
+ * actually retrieved — `TOP_K` per tool call, times however many calls the plan
+ * made, deduplicated. Pinning a nominal k would measure a number the run never
+ * used. Note this is everything in state, *before* `synthesize` keeps the closest
+ * 12: a document retrieved but cut from the prompt still counts as recalled.
  */
 export function scoreRecall(run: EvalRun, question: EvalQuestion): QuestionResult['recall'] {
   const expected = [...question.expectedDocIds];

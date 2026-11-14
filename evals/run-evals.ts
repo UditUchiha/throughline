@@ -127,6 +127,7 @@ async function main(): Promise<void> {
       memory: options.memory,
       tools: context.toolNames,
       guardrails: context.guardrailNames,
+      hops: 'retrieval-rounds',
     };
     const cache = new EvalCache(fingerprint, options.fresh);
     const judge = options.judge ? JudgeClient.create(context.app) : null;

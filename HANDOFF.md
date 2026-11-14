@@ -95,7 +95,7 @@ questions from fact IDs. Facts are authored **first** — never write a question
 generated document. This ordering is what makes the eval suite meaningful rather than
 circular, and it is what real benchmarks (HotpotQA, LoCoMo) do.
 
-Setting: "Lumen Labs", a fictional company — 16 people, 3 customers, 6 projects, 15 channels.
+Setting: "Lumen Labs", a fictional company — 16 people, 3 customers, 7 projects, 15 channels.
 172 documents (83 mail / 48 chat channel-days / 41 notes) across 10 storylines, most of them
 pure noise. 36 facts, some with `supersedes` chains to create temporal traps. 59 questions
 across 6 categories, including 8 deliberately unanswerable ones (abstention is scored) and 3
@@ -448,11 +448,23 @@ that invalidated the 2026-09-06 figures. **0 runs failed in either mode.** Agent
 | Recall@k (deterministic) | 96.4% | **100%** |
 | Citation validity (deterministic) | 100% | 100% |
 | Plan source coverage (deterministic) | 98.4% | 100% |
-| Meets `minHops` (deterministic) | **96.6%** | 49.2% |
+| Meets `minHops` (deterministic) | 61.0% | 49.2% |
 | Injection resistance (deterministic) | 87.5% | 100% |
-| Abstention correctness (judge) | 100% | 100% |
+| Abstention correctness (deterministic on the unanswerable set) | 87.5% | **100%** |
 | Citation support (judge) | 96.0% | 93.9% |
 | Answer correctness (judge) | 65.4% | 77.6% |
+
+**Two rows were re-derived on 2026-10-26 from the same runs, with no model calls**, after both
+turned out to flatter the agent through scoring rather than behaviour. *Meets `minHops`* read
+96.6%: `minHops` counts retrieval rounds beyond the first, but `run-agent.ts` recorded
+`state.hops`, which counts `reflect` passes and is one higher on every agent run — so every
+agent run cleared `minHops: 1`, and the control (which never reflects) scored exactly its
+`minHops: 0` share. `extraRetrievalRounds` now records rounds actually run, and the cache
+fingerprint names that meaning so older cached runs are not replayed under it. *Abstention*
+read 100% over a single judged question: the agent answered the unanswerable
+`q.acme-corp-contract`, the judge marked it incorrect but left `abstention: not_applicable`,
+and the aggregate dropped it. The unanswerable set is now scored from the run's own
+`abstained` flag whether or not a judge saw it.
 
 **The control wins. That is the result, not a reporting error** — and it is the second time
 this project has had to tell those apart, so the distinction is worth stating. Read it with
@@ -517,9 +529,9 @@ there is now a number to move.
 
 **2. `RETRIEVAL_DISTANCE_THRESHOLD` should stay unenforced — with evidence this time.**
 `pnpm eval:sweep` labels every retrieval in a finished run by whether the answer key wanted it,
-then sweeps every candidate cutoff. Over **471 retrievals (74 relevant, 397 not)** the classes
-**overlap completely**: best achievable F1 0.551 at distance 0.485, precision 0.495. There is
-no empty band. It has been configured-but-unenforced since M0.6 on a *portability* argument;
+then sweeps every candidate cutoff. Over the 2026-10-04 run's **528 retrievals (80 relevant,
+448 not)** the classes **overlap completely**: best achievable F1 0.549 at distance 0.474,
+precision 0.536 (the first run's 471 gave 0.551 at 0.485). There is no empty band. It has been configured-but-unenforced since M0.6 on a *portability* argument;
 that argument is now a measurement, and the honest conclusion is unchanged. `eval:sweep` prints
 that conclusion rather than the best-F1 number, so nobody later mistakes one for the other.
 
@@ -536,11 +548,12 @@ that conclusion rather than the best-F1 number, so nobody later mistakes one for
   extraction at all. HANDOFF used to call that channel "narrow but not closed"; it is now
   closed except where the visitor opens it themselves.
 
-⚠️ **The committed agent results predate the gate, and that is deliberate — they are the
-evidence for it.** After the gate, `proposed: 0` over a corpus suite is 0 *by construction* and
-tells you nothing. That is why there is a `skippedNoSelfReference` funnel counter: a post-gate
-run reports 59 skipped / 0 proposed, and the two numbers stay distinguishable. Do not re-derive
-the decision from a post-gate run.
+⚠️ **The committed agent results are post-gate; the evidence for the gate came from the earlier
+pre-gate pass.** In `results-latest.json` (2026-10-04) the gate skipped 51 of the 52 answered
+runs, so its `proposed: 0` is 0 *by construction* and tells you nothing about the extractor.
+That is why there is a `skippedNoSelfReference` funnel counter: it keeps "the gate fired"
+distinguishable from "the extractor found nothing". Do not re-derive the decision from a
+post-gate run.
 
 #### Things worth knowing before you touch the harness
 
@@ -665,8 +678,9 @@ recording's.
   criterion is proven: a run served by Gemini and one served by Groq differ only by config.
 - **OpenRouter's model ids in `model-tiers.ts` are unverified.** No key has been exercised
   against them. Gemini's and Groq's were both stale when checked, so assume these are too.
-- ~~The second-hop rate is ~10% of multi-hop questions.~~ Measured in M6 over all 59: **mean
-  1.46 hops**, and 96.6% of questions met their authored `minHops` floor. Whether extra hops
+- ~~The second-hop rate is ~10% of multi-hop questions.~~ Measured in M6 over all 59: **15 runs
+  looped back for at least one extra round** (0.37 extra rounds per question), and 61.0% met
+  their authored `minHops` floor — mostly the `minHops: 0` questions. Whether extra hops
   would *improve* answers is still unmeasured — that needs a run with `MAX_HOPS` varied, and
   there is now a harness that can do it.
 - ~~A full live multi-hop run has not been watched end to end in the UI in one sitting.~~
@@ -693,8 +707,8 @@ recording's.
   embedding model changes, because the conclusion is model-specific like every other distance
   in this project.
 
-`pnpm lint`, `pnpm build` and `pnpm test` pass clean (**325 tests across 31 suites**), as do
-`cd ui && pnpm lint`, `cd ui && pnpm typecheck` and `cd ui && pnpm test` (20 tests), and
+`pnpm lint`, `pnpm build` and `pnpm test` pass clean (**496 tests across 48 suites**, 2026-10-26), as do
+`cd ui && pnpm lint`, `cd ui && pnpm typecheck` and `cd ui && pnpm test` (30 tests), and
 `pnpm check:conventions`. CI arrived in M6: `.github/workflows/ci.yml` runs all of that with no
 API key, and `evals.yml` runs the nine-question eval subset against `evals/baseline.json`. §9
 added two more keyless CI checks and a third job: the vector artifact's coverage
@@ -861,7 +875,7 @@ Local Ollama on `:11434` is only required when `LLM_PROVIDER=ollama` or
 | `fixtures/mcp/vault/` | the synthetic Obsidian vault that connector searches                   |
 | `ui/`               | the M2 UI — its own package, its own lockfile, its own toolchain        |
 | `corpus/`           | ledger (ground truth) + generated docs + questions                       |
-| `evals/`            | eval harness — empty until M6                                            |
+| `evals/`            | eval harness — agent vs single-shot control against the answer key       |
 | `scripts/`          | authoring tools, run outside the Nest context                            |
 
 ### The seams you will actually use
@@ -911,7 +925,7 @@ Fixtures reload when the files change, so `pnpm capture:runs` takes effect witho
 ## 8. The UI (`ui/`)
 
 Its own package, its own lockfile, its own toolchain — Next.js 16 App Router, React 19,
-Tailwind v4. It deploys to Vercel while the API deploys to HF Spaces, so **the browser always
+Tailwind v4. It deploys to Vercel while the API deploys to Render, so **the browser always
 makes a cross-origin request** and `NEXT_PUBLIC_API_URL` is the only thing it needs to know.
 
 ```bash

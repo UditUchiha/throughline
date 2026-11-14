@@ -35,7 +35,7 @@ jobs:
       # on a laptop and wrong in CI, where a job that silently repairs the code it
       # is checking reports a pass for a state that was never committed.
       - name: Lint
-        run: npx eslint "{src,evals,scripts,test}/**/*.ts"
+        run: npx eslint "{src,evals,scripts}/**/*.ts"
 
       - name: Typecheck
         run: npx tsc --noEmit

@@ -13,8 +13,9 @@ import {
  * Lower than `askRequestSchema`'s 1000-character cap on purpose. The DTO rejects
  * a body that is obviously not a question; this rejects one that is *shaped* like
  * a question but is long enough to be a way of spending someone else's tokens.
- * `POST /agent/ask` has no rate limit and no authentication (HANDOFF, known
- * gaps), so the size of one request is the only lever there is.
+ * `POST /agent/ask` has no authentication, and `AskThrottlerGuard` limits how
+ * many requests a client makes, not what one costs — so the size of a single
+ * request is a lever of its own.
  */
 const MAX_QUESTION_CHARS = 600;
 
