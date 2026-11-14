@@ -1,6 +1,6 @@
 'use client';
 
-import { CircleCheck, Play, Sparkles } from 'lucide-react';
+import { CircleCheck, Play } from 'lucide-react';
 import type { DemoRun } from '@/lib/api';
 import { SourceBadge } from './SourceBadge';
 
@@ -70,8 +70,8 @@ export function isHeroQuestion(question: string): boolean {
 
 /** What the run will show, so a first-time visitor knows where to look. */
 const WATCH_FOR = [
-  'Sub-questions fan out to separate sources, in parallel.',
-  'Evidence arrives grouped by the source it came from.',
+  'The question is split, and each part is searched where it is likely to be.',
+  'What it found is shown grouped by where it came from.',
   'Each citation in the answer jumps to the exact passage behind it.',
 ];
 
@@ -97,16 +97,8 @@ export function HeroQuestion({
   if (!available) return null;
 
   return (
-    <section className={`animate-enter relative isolate overflow-hidden flex flex-col rounded-2xl border border-signal/35 bg-surface p-5 shadow-[var(--panel-shadow)] sm:p-7 ${className}`}>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -top-28 -right-20 -z-10 size-72 rounded-full bg-signal/12 blur-3xl"
-      />
-
-      <h2 className="eyebrow flex items-center gap-2 text-signal">
-        <Sparkles className="size-4" aria-hidden />
-        Start here
-      </h2>
+    <section className={`animate-enter flex flex-col rounded-2xl border border-signal/35 bg-surface p-5 shadow-(--panel-shadow) sm:p-7 ${className}`}>
+      <h2 className="eyebrow text-signal">Start here</h2>
 
       <p className="mt-3 text-xl leading-snug font-semibold text-balance text-fg sm:text-2xl">
         {HERO_QUESTION}

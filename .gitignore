@@ -52,3 +52,5 @@ ui/node_modules/
 
 *.log
 .DS_Store
+preparation/
+.playwright-mcp/
