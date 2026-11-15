@@ -170,9 +170,10 @@ Five UI traps worth not re-learning:
 - **Citation markers are not evidence positions.** `synthesize` sorts evidence by distance
   and truncates before numbering it, so `[5]` is routinely not the fifth chunk retrieved.
   Build marker maps from the `citations` array only.
-- **`distance` is lower-is-better** and is not a 0–1 score. Rendering it as a bar without
-  inverting shows the best evidence as the weakest. The band in `relevanceFraction` is
-  measured against the committed fixtures and is specific to the embedding model.
+- **`distance` is lower-is-better** and is not a 0–1 score. The UI shows it only as a number
+  inside an expanded evidence card. A bar once inverted it against a measured band
+  (0.406–0.585 on `gemini-embedding-001` at 768d); the bar is gone, and any future bar needs
+  the inversion and a band re-measured for the current embedding model.
 - **An empty `evidenceIds` does not mean failure.** A search can legitimately match
   nothing; only `tool_finished.error` distinguishes the two. Treating them alike renders a
   failed retrieval as a completed one.

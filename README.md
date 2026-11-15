@@ -55,8 +55,10 @@ picking this up cold.
   deterministic check, not an LLM judgment.
 - **Streaming.** A frozen event contract (`src/agent/events.ts`) over SSE, and a Next.js UI
   that renders the plan, the parallel tool timeline, the evidence and the cited answer as
-  they arrive. The answer itself arrives whole, as one `token_delta`, once synthesis
-  finishes — token-by-token streaming is not built (`synthesize.node.ts`).
+  they arrive. The page is answer-first: the cited answer and the passages behind it come
+  first, and the plan, timeline and stats sit behind one "Show how it got there" toggle. The
+  answer itself arrives whole, as one `token_delta`, once synthesis finishes —
+  token-by-token streaming is not built (`synthesize.node.ts`).
 - **Recorded-run replay.** `?demo=1` replays a captured run over the same event stream with
   zero model calls — the demo still works when a free tier is exhausted.
 - **A corpus that is an answer key.** 172 synthetic documents generated from a hand-authored

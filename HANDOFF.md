@@ -960,11 +960,15 @@ ui/app/page.tsx          the only stateful component
   truncates before numbering it, so `[5]` is routinely *not* the fifth chunk retrieved. Build
   marker maps from the `citations` array only (`markersByEvidenceId`). There is a test pinning
   this because the failure is silent and sends every chip to the wrong card.
-- **`distance` is lower-is-better** and is not normalised to 0–1. `relevanceFraction()` inverts
-  it against the band this corpus occupies purely so the bars are comparable; the number beside
-  the bar stays the real distance, and the label says "d" rather than "score" on purpose. The
-  band is measured off the committed fixtures (0.406–0.585 on `gemini-embedding-001` at 768d)
-  and is **not portable across embedding models** — re-measure it if `EMBEDDING_MODEL` changes.
+- **`distance` is lower-is-better** and is not normalised to 0–1. The UI shows it only as a
+  number in an expanded evidence card, labelled "distance" rather than "score" on purpose. A
+  bar used to invert it against the band this corpus occupies (0.406–0.585 on
+  `gemini-embedding-001` at 768d); the bar went with the answer-first layout, and any bar that
+  comes back needs that inversion and a band re-measured for the current embedding model.
+- **The run view is answer-first.** Answer, then the cited passages, then one closed
+  "Show how it got there" holding triage, plan, timeline, stats and memory. Uncited passages
+  fold behind a count. Nothing was removed from the DOM, so a reviewer who wants the trace
+  opens two toggles; a visitor who wants the answer scrolls nowhere.
 - **The tool timeline is scaled to the retrieval window**, not the whole run. Model calls
   dominate wall-clock — a 26s run can finish all its retrieval inside 4s — so scaling to the
   run squeezes every bar into a sliver and destroys the one thing the chart exists to show.

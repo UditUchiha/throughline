@@ -97,37 +97,6 @@ export function formatCost(costUsd: number | null): string {
   return costUsd === null ? 'not priced' : `$${costUsd.toFixed(4)}`;
 }
 
-/**
- * Distance is a raw vector distance: **lower is more similar**, and it is not
- * normalised to 0–1. Rendering it directly as a bar would show the best evidence
- * as the weakest, so this inverts it against the band the corpus actually
- * occupies, purely to make the bars comparable. The number beside the bar stays
- * the real distance.
- *
- * The band is **measured, not guessed**: across the 55 retrieved chunks in
- * `fixtures/runs/*.json` the range is 0.406–0.585 on `gemini-embedding-001` at
- * 768d. `WORST` sits above that with headroom rather than at the observed
- * maximum, so a genuinely poor hit still reads as poor instead of pinning the
- * scale. An earlier 0.4–0.75 window squeezed every real bar into the top half
- * of the track, which wastes the one control whose whole job is showing
- * differences.
- *
- * **These constants are specific to the embedding model.** Distances are not
- * comparable across models, so changing `EMBEDDING_MODEL` means re-measuring
- * them — the same portability trap documented for `RETRIEVAL_DISTANCE_THRESHOLD`
- * in `docs/retrieval-threshold-study.md`.
- */
-const BEST_DISTANCE = 0.4;
-const WORST_DISTANCE = 0.65;
-
-export function relevanceFraction(distance: number): number {
-  const clamped = Math.min(Math.max(distance, BEST_DISTANCE), WORST_DISTANCE);
-  const fraction = 1 - (clamped - BEST_DISTANCE) / (WORST_DISTANCE - BEST_DISTANCE);
-  // A chunk past the band was still retrieved and still cited; a zero-width bar
-  // reads as a rendering fault rather than as weak evidence.
-  return Math.max(fraction, 0.04);
-}
-
 /** What `ConnectionBanner` is telling the visitor, and why. */
 export type ConnectionCause = 'local-dev' | 'rate-limited' | 'no-response' | 'api-error';
 
